@@ -88,7 +88,7 @@ class AgentDecision(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     recovery_case_id: Mapped[int] = mapped_column(ForeignKey("recovery_cases.id"))
     agent_name: Mapped[str] = mapped_column(String(50))
-    model_used: Mapped[str] = mapped_column(String(30))
+    model_used: Mapped[str] = mapped_column(String(80))
     input_snapshot: Mapped[dict] = mapped_column(JSONVariant)
     output: Mapped[dict] = mapped_column(JSONVariant)
     confidence: Mapped[float] = mapped_column(Float)

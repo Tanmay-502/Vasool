@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # provider rename/deprecation is a .env edit, not a code change.
     GEMINI_MODEL: str = "gemini-3-flash-preview"
     GROQ_MODEL: str = "openai/gpt-oss-20b"
-    AGENT_TIMEOUT_SECONDS: float = 8.0
+    AGENT_TIMEOUT_SECONDS: float = 12.0
 
     MAX_AUTO_RETRY_AMOUNT_PAISE: int = 500_000  # ₹5,000 ceiling for auto-execute
     MAX_RETRY_ATTEMPTS: int = 3

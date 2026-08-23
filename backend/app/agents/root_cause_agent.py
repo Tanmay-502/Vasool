@@ -16,6 +16,8 @@ from pydantic import ValidationError
 from app.agents import rules_fallback
 from app.agents.llm_clients import AgentTierError, GeminiClient, GroqClient
 from app.agents.schemas import ROOT_CAUSE_JSON_SCHEMA, RootCauseOutput, groq_strict_schema
+from app.agents import circuit_breaker  
+
 
 logger = logging.getLogger(__name__)
 
@@ -59,22 +61,34 @@ def run_root_cause_agent(
     user_prompt = _build_user_prompt(context)
 
     # Tier 1 — Gemini
-    try:
-        raw, tokens, latency_ms = gemini.complete_json(SYSTEM_PROMPT, user_prompt, ROOT_CAUSE_JSON_SCHEMA)
-        output = RootCauseOutput.model_validate(raw)
-        return AgentTierResult(output, "gemini", gemini.model, tokens, latency_ms)
-    except (AgentTierError, ValidationError) as exc:
-        logger.warning("root_cause_agent: gemini tier failed (%s), falling back to groq", exc)
+    if not circuit_breaker.is_open("gemini"):
+        try:
+            raw, tokens, latency_ms = gemini.complete_json(SYSTEM_PROMPT, user_prompt, ROOT_CAUSE_JSON_SCHEMA)
+            output = RootCauseOutput.model_validate(raw)
+            circuit_breaker.record_success("gemini")
+            return AgentTierResult(output, "gemini", gemini.model, tokens, latency_ms)
+        except (AgentTierError, ValidationError) as exc:
+            circuit_breaker.record_failure("gemini")
+            logger.warning("root_cause_agent: gemini tier failed (%s), falling back to groq", exc)
+    else:
+        logger.warning("root_cause_agent: gemini circuit open, skipping straight to groq")
 
     # Tier 2 — Groq
-    try:
-        schema = groq_strict_schema(ROOT_CAUSE_JSON_SCHEMA)
-        raw, tokens, latency_ms = groq.complete_json(SYSTEM_PROMPT, user_prompt, "root_cause_output", schema)
-        output = RootCauseOutput.model_validate(raw)
-        return AgentTierResult(output, "groq", groq.model, tokens, latency_ms)
-    except (AgentTierError, ValidationError) as exc:
-        logger.warning("root_cause_agent: groq tier failed (%s), falling back to rules", exc)
+    if not circuit_breaker.is_open("groq"):
+        try:
+            schema = groq_strict_schema(ROOT_CAUSE_JSON_SCHEMA)
+            raw, tokens, latency_ms = groq.complete_json(SYSTEM_PROMPT, user_prompt, "root_cause_output", schema)
+            output = RootCauseOutput.model_validate(raw)
+            circuit_breaker.record_success("groq")
+            return AgentTierResult(output, "groq", groq.model, tokens, latency_ms)
+        except (AgentTierError, ValidationError) as exc:
+            circuit_breaker.record_failure("groq")
+            logger.warning("root_cause_agent: groq tier failed (%s), falling back to rules", exc)
+    else:
+        logger.warning("root_cause_agent: groq circuit open, skipping straight to rules")
 
     # Tier 3 — deterministic rules, always succeeds
     output = rules_fallback.root_cause_fallback(context)
     return AgentTierResult(output, "rules_fallback", "rules-v1", None, 0)
+
+   

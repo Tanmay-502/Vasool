@@ -7,6 +7,8 @@ from sqlalchemy.pool import StaticPool
 from app import models  # noqa: F401  (registers all tables on Base.metadata)
 from app.db import Base, get_db
 from app.main import app
+from app.agents import circuit_breaker
+from app.rate_limit import reset as reset_rate_limit
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
 
@@ -41,3 +43,9 @@ def client(db_session):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+@pytest.fixture(autouse=True)
+def _reset_module_level_state():
+    circuit_breaker.reset()
+    reset_rate_limit()
+    yield  

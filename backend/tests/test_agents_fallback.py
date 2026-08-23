@@ -7,6 +7,7 @@ out explicitly: "fallback chain tested by forcing a failure at each tier."
 from app.agents.llm_clients import AgentTierError
 from app.agents.recovery_strategy_agent import run_recovery_strategy_agent
 from app.agents.root_cause_agent import run_root_cause_agent
+from app.agents import circuit_breaker
 
 ROOT_CONTEXT = {
     "failure_reason": "otp_timeout",
@@ -137,3 +138,28 @@ def test_recovery_strategy_risk_flagged_always_escalates_even_on_rules_fallback(
 
     assert result.tier == "rules_fallback"
     assert result.output.action.value == "escalate_human"
+
+def test_circuit_breaker_skips_gemini_after_repeated_failures():
+    
+
+    for _ in range(circuit_breaker.FAILURE_THRESHOLD):
+        circuit_breaker.record_failure("gemini")
+
+    gemini = FakeTierClient(error=AgentTierError("should not even be called"))
+    groq = FakeTierClient(
+        response=(
+            {
+                "root_cause_category": "otp_timeout",
+                "is_transient": True,
+                "confidence": 0.8,
+                "reasoning": "groq handled it since gemini circuit was open",
+            },
+            40,
+            100,
+        )
+    )
+
+    result = run_root_cause_agent(ROOT_CONTEXT, gemini=gemini, groq=groq)
+
+    assert result.tier == "groq"
+    assert gemini.called is False  # circuit was open, gemini.complete_json never invoked

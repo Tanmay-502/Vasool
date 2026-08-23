@@ -1,5 +1,7 @@
 from app.agents import llm_clients
 from app.models import Customer, Merchant, Order, Payment, RecoveryCase
+from app.rate_limit import check_and_record
+from app.routers import agents as agents_router
 
 
 def _seed_one_failed_case(db):
@@ -50,3 +52,21 @@ def test_analyze_case_returns_pipeline_result(client, db_session, monkeypatch):
 def test_analyze_case_404s_for_unknown_case(client):
     response = client.post("/cases/999999/analyze")
     assert response.status_code == 404
+
+def test_analyze_case_409s_when_already_analyzed_without_force(client, db_session):
+    case = _seed_one_failed_case(db_session)
+    assert client.post(f"/cases/{case.id}/analyze").status_code == 200
+    assert client.post(f"/cases/{case.id}/analyze").status_code == 409
+
+
+def test_analyze_case_allows_re_analysis_with_force(client, db_session):
+    case = _seed_one_failed_case(db_session)
+    client.post(f"/cases/{case.id}/analyze")
+    assert client.post(f"/cases/{case.id}/analyze?force=true").status_code == 200
+
+
+def test_analyze_case_returns_429_when_rate_limited(client, db_session):
+    case = _seed_one_failed_case(db_session)
+    for _ in range(agents_router.ANALYZE_RATE_LIMIT_PER_MINUTE):
+        check_and_record(agents_router.ANALYZE_RATE_LIMIT_PER_MINUTE)
+    assert client.post(f"/cases/{case.id}/analyze").status_code == 429

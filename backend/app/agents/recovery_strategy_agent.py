@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from app.agents import rules_fallback
 from app.agents.llm_clients import AgentTierError, GeminiClient, GroqClient
 from app.agents.schemas import RECOVERY_STRATEGY_JSON_SCHEMA, RecoveryStrategyOutput, groq_strict_schema
+from app.agents import circuit_breaker
 
 logger = logging.getLogger(__name__)
 
@@ -66,25 +67,32 @@ def run_recovery_strategy_agent(
     groq = groq if groq is not None else GroqClient()
     user_prompt = _build_user_prompt(context)
 
-    # Tier 1 — Gemini
-    try:
-        raw, tokens, latency_ms = gemini.complete_json(SYSTEM_PROMPT, user_prompt, RECOVERY_STRATEGY_JSON_SCHEMA)
-        output = RecoveryStrategyOutput.model_validate(raw)
-        return AgentTierResult(output, "gemini", gemini.model, tokens, latency_ms)
-    except (AgentTierError, ValidationError) as exc:
-        logger.warning("recovery_strategy_agent: gemini tier failed (%s), falling back to groq", exc)
+    if not circuit_breaker.is_open("gemini"):
+        try:
+            raw, tokens, latency_ms = gemini.complete_json(SYSTEM_PROMPT, user_prompt, RECOVERY_STRATEGY_JSON_SCHEMA)
+            output = RecoveryStrategyOutput.model_validate(raw)
+            circuit_breaker.record_success("gemini")
+            return AgentTierResult(output, "gemini", gemini.model, tokens, latency_ms)
+        except (AgentTierError, ValidationError) as exc:
+            circuit_breaker.record_failure("gemini")
+            logger.warning("recovery_strategy_agent: gemini tier failed (%s), falling back to groq", exc)
+    else:
+        logger.warning("recovery_strategy_agent: gemini circuit open, skipping straight to groq")
 
-    # Tier 2 — Groq
-    try:
-        schema = groq_strict_schema(RECOVERY_STRATEGY_JSON_SCHEMA)
-        raw, tokens, latency_ms = groq.complete_json(
-            SYSTEM_PROMPT, user_prompt, "recovery_strategy_output", schema
-        )
-        output = RecoveryStrategyOutput.model_validate(raw)
-        return AgentTierResult(output, "groq", groq.model, tokens, latency_ms)
-    except (AgentTierError, ValidationError) as exc:
-        logger.warning("recovery_strategy_agent: groq tier failed (%s), falling back to rules", exc)
+    if not circuit_breaker.is_open("groq"):
+        try:
+            schema = groq_strict_schema(RECOVERY_STRATEGY_JSON_SCHEMA)
+            raw, tokens, latency_ms = groq.complete_json(
+                SYSTEM_PROMPT, user_prompt, "recovery_strategy_output", schema
+            )
+            output = RecoveryStrategyOutput.model_validate(raw)
+            circuit_breaker.record_success("groq")
+            return AgentTierResult(output, "groq", groq.model, tokens, latency_ms)
+        except (AgentTierError, ValidationError) as exc:
+            circuit_breaker.record_failure("groq")
+            logger.warning("recovery_strategy_agent: groq tier failed (%s), falling back to rules", exc)
+    else:
+        logger.warning("recovery_strategy_agent: groq circuit open, skipping straight to rules")
 
-    # Tier 3 — deterministic rules, always succeeds
     output = rules_fallback.recovery_strategy_fallback(context)
     return AgentTierResult(output, "rules_fallback", "rules-v1", None, 0)
