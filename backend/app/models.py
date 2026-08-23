@@ -1,10 +1,15 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Float
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Float
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+
+# JSONB on Postgres (fast containment queries, indexable) but falls back to
+# plain JSON on any other dialect — this is what lets the test suite run
+# against SQLite instead of needing a live Postgres connection for CI.
+JSONVariant = JSON().with_variant(JSONB, "postgresql")
 
 
 class Merchant(Base):
@@ -57,6 +62,7 @@ class Payment(Base):
 
     order: Mapped["Order"] = relationship(back_populates="payments")
     recovery_case: Mapped["RecoveryCase | None"] = relationship(back_populates="payment", uselist=False)
+    ground_truth: Mapped["GroundTruth | None"] = relationship(back_populates="payment", uselist=False)
 
 
 class RecoveryCase(Base):
@@ -80,8 +86,8 @@ class AgentDecision(Base):
     recovery_case_id: Mapped[int] = mapped_column(ForeignKey("recovery_cases.id"))
     agent_name: Mapped[str] = mapped_column(String(50))
     model_used: Mapped[str] = mapped_column(String(30))
-    input_snapshot: Mapped[dict] = mapped_column(JSONB)
-    output: Mapped[dict] = mapped_column(JSONB)
+    input_snapshot: Mapped[dict] = mapped_column(JSONVariant)
+    output: Mapped[dict] = mapped_column(JSONVariant)
     confidence: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -128,5 +134,34 @@ class AuditLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     recovery_case_id: Mapped[int | None] = mapped_column(ForeignKey("recovery_cases.id"), nullable=True)
     event_type: Mapped[str] = mapped_column(String(50))
-    payload: Mapped[dict] = mapped_column(JSONB)
+    payload: Mapped[dict] = mapped_column(JSONVariant)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class GroundTruth(Base):
+    """
+    Pre-labeled answer key for the held-out evaluation described in the PRD
+    ("precision/recall on 'is this actually recoverable' vs pre-labeled
+    ground truth"). Generated once by scripts/generate_synthetic_data.py and
+    then frozen — do not regenerate once agent development starts, or every
+    evaluation number becomes a moving target.
+
+    INTEGRITY RULE: the Root Cause Agent and Recovery Strategy Agent must
+    NEVER read this table. It exists purely for scoring their output after
+    the fact (Day 6). If an agent's prompt or context ever includes
+    is_recoverable/ideal_action, the eval numbers are meaningless.
+    """
+
+    __tablename__ = "ground_truth_labels"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payment_id: Mapped[int] = mapped_column(ForeignKey("payments.id"), unique=True)
+
+    is_recoverable: Mapped[bool] = mapped_column(Boolean)
+    # one of: retry_now | retry_later | send_payment_link | escalate_human | no_action
+    ideal_action: Mapped[str] = mapped_column(String(30))
+    # "dev" (80%, agents may be iterated against this) | "holdout" (20%, touch once, at the end)
+    eval_split: Mapped[str] = mapped_column(String(10), default="dev")
+    rationale: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    payment: Mapped["Payment"] = relationship(back_populates="ground_truth")
