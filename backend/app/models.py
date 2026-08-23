@@ -34,6 +34,7 @@ class Customer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     merchant: Mapped["Merchant"] = relationship(back_populates="customers")
+    orders: Mapped[list["Order"]] = relationship(back_populates="customer")
 
 
 class Order(Base):
@@ -47,6 +48,7 @@ class Order(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     merchant: Mapped["Merchant"] = relationship(back_populates="orders")
+    customer: Mapped["Customer"] = relationship(back_populates="orders")
     payments: Mapped[list["Payment"]] = relationship(back_populates="order")
 
 
