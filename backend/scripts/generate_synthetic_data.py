@@ -34,6 +34,13 @@ did before. That's safe to do now, on Day 2, before anything downstream has
 been built against a specific frozen dataset — just don't mix output from
 this version with output from the old version, and don't change it again
 once Day 3+ agents are evaluated against it.
+
+DAY 2.5 HARDENING: added a real opted_out cohort (OPTED_OUT_PROB) and real
+attempt_number variation (ATTEMPT_NUMBER_WEIGHTS) on failed payments — both
+were previously hardcoded to "never happens" / "always 1". This shifts the
+RNG stream again, so seed=42 now produces yet another (still fully
+deterministic) dataset vs. the version before this change. Same rule as
+above: fine now, not fine once Day 3+ agents are being scored against it.
 """
 import argparse
 import random
@@ -90,6 +97,22 @@ FAILURE_PROFILES = {
 OVERALL_FAILURE_RATE = 0.35
 NOISE_FLIP_PROB = 0.08  # keep the label non-trivial to reverse-engineer
 LARGE_AMOUNT_PAISE = 500_000  # > ₹5,000 — matches MAX_AUTO_RETRY_AMOUNT_PAISE
+
+# ~1 in 14 customers has opted out of contact (DND-style). Previously every
+# customer had opted_out=False, so the Day 4 policy engine had zero cases to
+# prove its "never send a payment link to someone who opted out" check
+# against. This cohort exists so that guardrail has something real to catch.
+OPTED_OUT_PROB = 0.07
+
+# How many times a payment had already failed *before* Vasool ever saw it —
+# i.e. bank/checkout-side auto-retries that happened upstream of this
+# pipeline. Weighted toward 1 (most failures are caught on the first pass);
+# capped at MAX_RETRY_ATTEMPTS (see app/config.py). Previously every failed
+# payment was hardcoded to attempt_number=1, which silently made the
+# diminishing-returns decay in compute_ground_truth() (0.88 ** (attempt-1))
+# dead code — it was written and unit-tested but never exercised by the
+# actual frozen dataset.
+ATTEMPT_NUMBER_WEIGHTS = {1: 0.55, 2: 0.30, 3: 0.15}
 
 
 def weighted_choice(rng: random.Random, weights: dict[str, float]) -> str:
@@ -194,6 +217,7 @@ def generate(count: int, seed: int, reset: bool) -> None:
                 name=f"{first} {last}",
                 email=f"{first.lower()}.{last.lower()}{rng.randint(1, 999)}@example.com",
                 phone=f"9{rng.randint(100000000, 999999999)}",
+                opted_out=rng.random() < OPTED_OUT_PROB,
             ))
         add_and_flush(db, customers)
         print(f"Merchants + customers written ({len(merchants)} / {len(customers)})...")
@@ -233,12 +257,17 @@ def generate(count: int, seed: int, reset: bool) -> None:
                 failure_reason = weighted_choice(
                     rng, {k: v["weight"] for k, v in FAILURE_PROFILES.items()}
                 )
+                attempt_number = rng.choices(
+                    list(ATTEMPT_NUMBER_WEIGHTS.keys()),
+                    weights=list(ATTEMPT_NUMBER_WEIGHTS.values()),
+                    k=1,
+                )[0]
                 payments.append(Payment(
                     order_id=order.id,
                     method=method,
                     status="failed",
                     failure_reason=failure_reason,
-                    attempt_number=1,
+                    attempt_number=attempt_number,
                     created_at=meta["created_at"],
                 ))
                 payment_meta.append({

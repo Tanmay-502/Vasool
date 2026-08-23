@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Float
@@ -89,6 +90,9 @@ class AgentDecision(Base):
     input_snapshot: Mapped[dict] = mapped_column(JSONVariant)
     output: Mapped[dict] = mapped_column(JSONVariant)
     confidence: Mapped[float] = mapped_column(Float)
+    # nullable: the rules-based fallback tier has no token/latency concept
+    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     case: Mapped["RecoveryCase"] = relationship(back_populates="decisions")
@@ -113,6 +117,12 @@ class Action(Base):
     action_type: Mapped[str] = mapped_column(String(30))
     status: Mapped[str] = mapped_column(String(30), default="pending")
     razorpay_reference: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # generated client-side (not DB default) so it exists the instant the Action
+    # object is created in Python, before it's ever flushed to Razorpay — the
+    # executor must send this on every call and treat a repeat as a no-op.
+    idempotency_key: Mapped[str] = mapped_column(
+        String(64), unique=True, default=lambda: uuid.uuid4().hex
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     case: Mapped["RecoveryCase"] = relationship(back_populates="actions")

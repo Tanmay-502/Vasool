@@ -80,3 +80,63 @@ def test_generate_produces_expected_volume_and_split(db_session, monkeypatch):
     assert dev_count + holdout_count == gt_count
     # roughly 80/20, allow rounding slack on small samples
     assert abs(dev_count / gt_count - 0.8) < 0.05
+
+
+def test_golden_snapshot_seed_42_count_1500(db_session, monkeypatch):
+    """
+    Locks in the exact aggregate stats of the frozen dataset (seed=42,
+    count=1500) that Day 3+ agents get built and evaluated against.
+
+    If this test ever fails, it means something changed how the RNG stream
+    gets consumed (a reordered rng call, a new randomized field, a changed
+    weight/probability) and seed=42 now silently produces a *different*
+    dataset than the one every prior eval number was collected against.
+
+    Do NOT "fix" this test by just updating the numbers unless you've
+    deliberately decided to re-freeze the dataset — see the module
+    docstring's "IMPORTANT" and "DAY 2.5 HARDENING" notes on why that
+    invalidates prior metrics.
+    """
+    import scripts.generate_synthetic_data as gen_module
+    from sqlalchemy import func
+
+    monkeypatch.setattr(gen_module, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(gen_module.Base.metadata, "create_all", lambda bind=None: None)
+    monkeypatch.setattr(db_session, "close", lambda: None)
+
+    generate(count=1500, seed=42, reset=False)
+
+    assert db_session.query(Merchant).count() == 5
+    assert db_session.query(Customer).count() == 500
+    assert db_session.query(Order).count() == 1500
+
+    opted_out_count = (
+        db_session.query(Customer).filter(Customer.opted_out.is_(True)).count()
+    )
+    assert opted_out_count == 32
+
+    failed_count = db_session.query(Payment).filter(Payment.status == "failed").count()
+    assert failed_count == 506
+    assert db_session.query(RecoveryCase).count() == failed_count
+
+    gt_count = db_session.query(GroundTruth).count()
+    assert gt_count == failed_count
+
+    recoverable_count = (
+        db_session.query(GroundTruth).filter(GroundTruth.is_recoverable.is_(True)).count()
+    )
+    assert recoverable_count == 258
+
+    dev_count = db_session.query(GroundTruth).filter(GroundTruth.eval_split == "dev").count()
+    holdout_count = db_session.query(GroundTruth).filter(
+        GroundTruth.eval_split == "holdout"
+    ).count()
+    assert (dev_count, holdout_count) == (404, 102)
+
+    attempt_dist = dict(
+        db_session.query(Payment.attempt_number, func.count(Payment.id))
+        .filter(Payment.status == "failed")
+        .group_by(Payment.attempt_number)
+        .all()
+    )
+    assert attempt_dist == {1: 296, 2: 136, 3: 74}
