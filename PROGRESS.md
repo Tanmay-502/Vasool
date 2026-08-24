@@ -43,23 +43,66 @@ the generator's own logic but were never actually exercised:
       confirmed both previously-dead fields now vary in the actual output,
       not just in theory.
 
-**Action for you:** since there's no Alembic yet, these are new columns —
-wipe your local/dev table state (or cut a fresh Neon branch) and re-run
-`python -m scripts.init_db`, then `python -m scripts.generate_synthetic_data --reset`
-to get a frozen dataset that actually has these fixes baked in.
+## Day 3 — Root Cause + Strategy agents ✅
+- [x] Both agents return structured JSON (Gemini -> Groq -> rules fallback)
+      — `root_cause_agent.py` / `recovery_strategy_agent.py`, three tiers,
+      output validated against Pydantic schemas (`app/agents/schemas.py`)
+      so a malformed or off-taxonomy response trips the fallback instead
+      of crashing.
+- [x] Fallback chain tested by forcing a failure at each tier
+      (`tests/test_agents_fallback.py` — fakes both clients directly, no
+      real network calls, no API keys needed to run in CI).
+- [x] **Cost/latency logging per agent call** — `model_used`, `tokens_used`,
+      `latency_ms` written on every `AgentDecision` row
+      (`app/agents/pipeline.py`).
+- [x] **Confidence must be calibrated, not decorative.** First calibration
+      pass (`scripts/calibrate_confidence.py --all`) exposed the opposite
+      of calibration: 82% of dev-split cases landed in the 0.90+ bucket,
+      and that bucket had the *worst* match rate of the three (~30%) —
+      confidence wasn't tracking correctness at all. Root cause: the
+      Recovery Strategy Agent's system prompt only said "calibrate
+      confidence to how certain the context genuinely makes you" — a
+      vibe, not an instruction a model reliably follows. Rewrote the
+      prompt with concrete anchors (0.85+ only for genuinely unambiguous
+      cases — risk_flagged, or a first-attempt transient failure; 0.55–0.80
+      for real judgment calls like card_declined or any repeat attempt;
+      below 0.55 for weak/conflicting signal). Two independent post-fix
+      runs confirm it held:
+      | n | 0.90+ | 0.75–0.89 | 0.60–0.74 | <0.60 |
+      |---|---|---|---|---|
+      | 40 | 100.0% | 53.8% | 15.4% | — |
+      | 150 | 100.0% | 58.8% | 33.3% | 29.1% |
+      Match rate strictly decreases as the confidence bucket decreases in
+      both runs — the property this checklist item originally asked for
+      ("0.95 confidence should genuinely beat 0.55"), now actually true
+      and verified twice, not assumed.
+- [ ] Frontend track (Next.js + TypeScript + Tailwind + shadcn/ui +
+      Recharts, deployed to Vercel) — not started. Doesn't block Day 4;
+      needs to be live before Day 5's dashboard work builds on top of it.
 
-## Day 3 — Root Cause + Strategy agents
-- [ ] Both agents return structured JSON (Gemini -> Groq -> rules fallback)
-- [ ] Fallback chain tested by forcing a failure at each tier
-- [ ] **Cost/latency logging per agent call** — `model_used`, tokens, ms, on
-      `AgentDecision`. Judges notice when you can say "this cost ₹0.0004 and
-      380ms per decision" instead of just "we used an LLM."
-- [ ] **Confidence must be calibrated, not decorative** — a case with 0.55
-      confidence should genuinely be worse than one at 0.95. Spot-check this
-      against the `dev` split before trusting it downstream.
-- [ ] Frontend track kicks off in parallel (doesn't block agent work):
-      Next.js + TypeScript + Tailwind + shadcn/ui + Recharts, deployed to
-      Vercel from day 1 so there's always a live URL, not just localhost.
+**Extra hardening added beyond the original Day 3 scope**, same spirit as
+Day 2.5 — found by actually running the pipeline under real failure
+conditions today, not just reading the code:
+- [x] **Circuit breaker on both LLM tiers** (`app/agents/circuit_breaker.py`)
+      — after 3 failures within 60s, a tier is skipped entirely (no network
+      call attempted) until cooldown. Without this, an outage mid-demo
+      means every case eats a full 12s timeout before falling through.
+      Verified for real today, not just in unit tests: Gemini 429s and a
+      separate Groq daily-quota exhaustion both tripped the breaker
+      correctly and independently, and every single case still produced a
+      decision via the next tier down (or `rules_fallback` when both LLM
+      tiers were open at once).
+- [x] **Rate limit on `POST /cases/{id}/analyze`** (`app/rate_limit.py`)
+      — 20 calls/minute, in-memory sliding window. Stops a runaway loop or
+      double-click storm from burning LLM quota mid-demo.
+- [x] **409 on re-analyzing an already-analyzed case**, with a
+      `?force=true` escape hatch — prevents silently piling up duplicate
+      `AgentDecision` rows for the same case on accidental re-calls.
+
+**Known limitation, not urgent:** Groq's free-tier daily token budget
+(200k TPD on `openai/gpt-oss-120b`) is easy to exhaust running repeated
+calibration batches back-to-back — hit it twice today. Not a code problem;
+just a real constraint to budget testing volume around before demo day.
 
 ## Day 4 — Policy engine + Razorpay execution
 - [ ] Policy engine unit-tested, zero LLM inside
