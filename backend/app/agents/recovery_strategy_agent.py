@@ -31,8 +31,19 @@ SYSTEM_PROMPT = (
     "must choose exactly one recovery action from the fixed taxonomy: "
     "retry_now, retry_later, send_payment_link, escalate_human, no_action. "
     "risk_flagged root causes must always be escalate_human. Never propose "
-    "send_payment_link for a customer who has opted out of contact. "
-    "Calibrate confidence to how certain the context genuinely makes you."
+    "send_payment_link for a customer who has opted out of contact.\n\n"
+    "Confidence must vary case to case, not cluster at one number. Use "
+    "these as anchors, not decoration:\n"
+    "- 0.85+ only for genuinely unambiguous cases: risk_flagged, or a "
+    "first-attempt transient failure (otp_timeout, network_error, "
+    "bank_server_error) with no other complicating signal.\n"
+    "- 0.55-0.80 for real judgment calls: card_declined, expired_card, "
+    "limit_exceeded, user_cancelled, or any repeat attempt (attempt_number "
+    "> 1) — these are genuinely uncertain, most failures in this dataset "
+    "fall here, and it is wrong to treat them as near-certain.\n"
+    "- Below 0.55 when the signal is weak or conflicting.\n"
+    "Most cases are NOT unambiguous. If you find yourself writing 0.9+ for "
+    "most cases, you are not calibrating — you are guessing confidently."
 )
 
 

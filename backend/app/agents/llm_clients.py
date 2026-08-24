@@ -101,18 +101,38 @@ class GroqClient:
         }
 
         start = time.perf_counter()
-        try:
-            resp = httpx.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-                json=body,
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except httpx.HTTPError as exc:
-            raise AgentTierError(f"Groq call failed: {exc}") from exc
+        attempts = 0
+        max_retries = 2  # bounded — this runs behind the live /analyze endpoint too
+
+        while True:
+            try:
+                resp = httpx.post(
+                    GROQ_URL,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    json=body,
+                    timeout=self.timeout,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429 and attempts < max_retries:
+                    try:
+                        wait_s = float(exc.response.headers.get("retry-after", "2"))
+                    except ValueError:
+                        wait_s = 2.0
+                    if wait_s <= 10:
+                        time.sleep(wait_s)
+                        attempts += 1
+                        continue
+                raise AgentTierError(
+                    f"Groq call failed ({exc.response.status_code}): {exc.response.text}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise AgentTierError(f"Groq call failed: {exc}") from exc
+
         latency_ms = int((time.perf_counter() - start) * 1000)
+
 
         try:
             content = data["choices"][0]["message"]["content"]
