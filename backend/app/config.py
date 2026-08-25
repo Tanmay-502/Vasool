@@ -24,5 +24,10 @@ class Settings(BaseSettings):
     MAX_RETRY_ATTEMPTS: int = 3
     MIN_CONFIDENCE_TO_AUTO_EXECUTE: float = 0.75
 
+    # Day 4 — global kill switch. Read on every case evaluation by
+    # app/policy_runner.py. Flipped at runtime via POST /admin/kill-switch,
+    # not just an env var + restart — see app/routers/admin.py.
+    KILL_SWITCH_ENGAGED: bool = False
+
 
 settings = Settings()

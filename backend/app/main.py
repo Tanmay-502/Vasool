@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import agents, health, metrics
+from app.routers import admin, agents, health, metrics, policy
+
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,8 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(metrics.router)
 app.include_router(agents.router)
+app.include_router(policy.router)
+app.include_router(admin.router)
 
 
 @app.on_event("startup")

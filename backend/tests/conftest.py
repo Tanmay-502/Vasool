@@ -8,6 +8,7 @@ from app import models  # noqa: F401  (registers all tables on Base.metadata)
 from app.db import Base, get_db
 from app.main import app
 from app.agents import circuit_breaker
+from app.config import settings
 from app.rate_limit import reset as reset_rate_limit
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -48,4 +49,5 @@ def client(db_session):
 def _reset_module_level_state():
     circuit_breaker.reset()
     reset_rate_limit()
+    settings.KILL_SWITCH_ENGAGED = False
     yield  
