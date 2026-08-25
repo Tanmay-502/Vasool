@@ -7,10 +7,11 @@ multi-agent recovery pipeline.
 Built for the Razorpay AI Buildathon 2026 (Track 03 — AI Revenue Recovery).
 
 ## Status
-Day 3 of 7 complete — root cause + recovery strategy agents live, three-tier
-fallback chain (Gemini → Groq → deterministic rules) verified under real
-provider outages, confidence calibration checked and fixed. Day 4 (policy
-engine + Razorpay execution) starting next. See [PROGRESS.md](./PROGRESS.md).
+Day 4 of 7 complete — policy/guardrail engine live and wired to real cases,
+auto-approved cases execute against Razorpay Test Mode (Payment Links API)
+with idempotency, a runtime kill switch, and a full audit trail. Day 5
+(LangGraph orchestration + dashboard) starting next. See
+[PROGRESS.md](./PROGRESS.md).
 
 ## Why
 A payment doesn't fail for one reason and stay failed forever — insufficient

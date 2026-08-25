@@ -104,20 +104,62 @@ conditions today, not just reading the code:
 calibration batches back-to-back — hit it twice today. Not a code problem;
 just a real constraint to budget testing volume around before demo day.
 
-## Day 4 — Policy engine + Razorpay execution
-- [ ] Policy engine unit-tested, zero LLM inside
-- [ ] Real Razorpay Test Mode call wired to EXECUTE
-- [ ] Every decision + API call in `audit_log`
-- [ ] **Idempotency key on every Action** before it touches Razorpay — a
-      retried request or a double-click must never double-charge or
-      double-send. This is the single most common way a "money agent" demo
-      goes visibly wrong in front of judges.
-- [ ] **Global kill switch** — one flag/endpoint that halts all auto-execution
-      and drops everything to HUMAN_REVIEW. Costs almost nothing to build,
-      and directly answers the safety question every judge asks a team
-      touching real payments.
-- [ ] **Rate limit / circuit breaker** on outbound Razorpay calls so a bad
-      loop can't hammer the API mid-demo.
+## Day 4 — Policy engine + Razorpay execution ✅
+- [x] **Policy engine, zero LLM inside** (`app/policy_engine.py`) — pure
+      function, 7 deterministic guardrails (kill switch, risk_flagged
+      escalation, action type, opt-out, confidence floor, amount ceiling,
+      retry ceiling), every check evaluated and recorded every time
+      regardless of which one decided the verdict. 15 unit tests.
+- [x] **Wired to real cases** (`app/policy_runner.py`) — reads the latest
+      `recovery_strategy_agent` / `root_cause_agent` decisions, writes one
+      `PolicyCheck` row per check, sets `case.status` to
+      `pending_execution` / `human_review` / `blocked`.
+- [x] **Real Razorpay Test Mode call wired to EXECUTE** (`app/executor.py`,
+      `app/razorpay_client.py`) — Payment Links API, confirmed against
+      current Razorpay docs. `retry_now` / `retry_later` / `send_payment_link`
+      all call the same endpoint; only `notify` (does Razorpay itself
+      email/SMS the customer) differs.
+- [x] **Idempotency key on every Action before it touches Razorpay** —
+      `Action.idempotency_key` (already existed since Day 2.5) is generated
+      once at object-creation time and reused as Razorpay's own
+      `reference_id`, which Razorpay itself rejects as a duplicate if
+      reused — idempotency enforced by Razorpay's API, not just an internal
+      constraint.
+- [x] **Global kill switch** — `settings.KILL_SWITCH_ENGAGED`, flipped at
+      runtime via `POST /admin/kill-switch/engage|disengage`, no redeploy.
+      Checked first in `evaluate_policy()`, short-circuits every other
+      guardrail to `HUMAN_REVIEW`.
+- [x] **Rate limit + circuit breaker on outbound Razorpay calls** — reused
+      `app/agents/circuit_breaker.py`'s tier logic as-is (tier name
+      `"razorpay"`); rate limiter caught a real bug before shipping (see
+      below) and was fixed instead of just extended.
+- [x] Every execution attempt writes to `audit_log`
+      (`execution_started` / `execution_succeeded` / `execution_failed`),
+      alongside the existing `AgentDecision` and `PolicyCheck` tables — the
+      full "why did it do that" trail is deliberately split across three
+      tables by concern (agent reasoning / guardrail results / outbound-call
+      lifecycle), all queryable per case.
+
+**Bug caught before it shipped:** `app/rate_limit.py` was a single global
+deque shared by every caller. Adding the Razorpay execution endpoint on
+that same counter would have meant analyzing cases silently ate into the
+execution budget and vice versa. Rewrote it to key its buckets
+(`key="default"` for `/analyze`, `key="razorpay_execute"` for `/execute`) —
+existing call sites needed zero changes, new ones get an independent window.
+
+**Known limitations, flagged not fixed:**
+- Razorpay Test Mode caps **30 Payment Links per business**. The synthetic
+  dataset has 500+ failed payments — do not batch-execute against it. Pick
+  a small curated set for the actual demo; shadow-mode the rest (Day 6).
+- Outcome tracking (did the customer actually pay via the link) needs a
+  webhook listener or manual reconciliation — not built yet, deliberately
+  deferred to Day 5/6, not silently skipped.
+- The executor is unit-tested against a fake Razorpay client — the request
+  shape matches current docs, but a real end-to-end call with real Test
+  Mode keys hasn't been made yet. Do that once before demo day rather
+  than assume it works.
+
+All 83 tests passing (`pytest -q` from `backend/`).
 
 ## Day 5 — Orchestration + dashboard
 - [ ] LangGraph pipeline end to end
