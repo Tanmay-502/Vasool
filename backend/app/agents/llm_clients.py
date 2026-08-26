@@ -17,6 +17,34 @@ Endpoints/params confirmed against provider docs (Aug 2026):
     generationConfig.responseMimeType="application/json" + responseSchema
   - Groq (OpenAI-compatible): POST https://api.groq.com/openai/v1/chat/completions
     response_format={"type": "json_schema", "json_schema": {...}} (strict mode)
+
+RETRY BEHAVIOR ON 429: both clients retry a rate-limited call a bounded
+number of times before giving up and letting the fallback chain move to
+the next tier — but only when the 429 is actually worth retrying.
+
+  - Groq is OpenAI-compatible and returns a standard HTTP `Retry-After`
+    header for an RPM-style 429.
+  - Gemini returns no such header — a short RPM-style wait is embedded in
+    the JSON error body at error.details[].retryDelay (e.g. "34s"), inside
+    a RetryInfo object. GeminiClient parses that for the retry case.
+  - Gemini's 429 body ALSO distinguishes a DAILY quota (RPD) violation from
+    a per-minute one, via error.details[].violations[].quotaId containing
+    "PerDay" (e.g. "GenerateRequestsPerDayPerProjectPerModel-FreeTier").
+    An RPD violation is never retried — no wait inside a request/script
+    timescale fixes a once-a-day counter — and GeminiClient remembers this
+    on `self.daily_quota_exceeded` so every later call on the SAME
+    INSTANCE fails immediately with no network call, instead of
+    rediscovering the same exhausted quota over and over.
+
+GeminiClient's defaults (max_retries=1, max_wait_seconds=6.0) are tuned for
+the LIVE /cases/{id}/analyze request path, where a demo is waiting on the
+response — a short, bounded RPM-style retry catches a brief burst without
+risking a slow response; anything that needs a longer wait, or is a daily
+cap, falls straight to Groq.
+scripts/calibrate_confidence.py constructs its own GeminiClient with more
+patient RPM-retry settings (it runs offline, not in front of anyone) — but
+that patience only ever applies to genuine RPM-style 429s; an RPD 429 is
+never retried regardless of those settings, by design.
 """
 import json
 import time
@@ -35,15 +63,67 @@ class AgentTierError(Exception):
     root_cause_agent.run_root_cause_agent / recovery_strategy_agent.run_recovery_strategy_agent."""
 
 
+def _parse_gemini_retry_delay(response: httpx.Response, default: float) -> float:
+    """Gemini's 429 body carries the suggested wait as error.details[].retryDelay
+    (e.g. "34s") inside a RetryInfo object — not a Retry-After header like
+    Groq/OpenAI-compatible APIs use. Falls back to `default` if the body
+    doesn't parse as JSON or doesn't include a retryDelay. Only meaningful
+    for RPM-style 429s — see _is_daily_quota_error for the other kind."""
+    try:
+        details = response.json().get("error", {}).get("details", [])
+        for detail in details:
+            delay = detail.get("retryDelay")
+            if delay:
+                return float(str(delay).rstrip("s"))
+    except (ValueError, TypeError, json.JSONDecodeError):
+        pass
+    return default
+
+
+def _is_daily_quota_error(response: httpx.Response) -> bool:
+    """True if this 429 is a DAILY quota (RPD) violation rather than a
+    per-minute (RPM) one — checked via quotaId inside
+    error.details[].violations[]. An RPM 429 is worth a short bounded
+    retry; an RPD 429 will keep failing on every retry for the rest of the
+    day, so retrying it is pure wasted latency."""
+    try:
+        details = response.json().get("error", {}).get("details", [])
+        for detail in details:
+            for violation in detail.get("violations", []):
+                if "PerDay" in violation.get("quotaId", ""):
+                    return True
+    except (ValueError, TypeError, json.JSONDecodeError):
+        pass
+    return False
+
+
 class GeminiClient:
-    def __init__(self, api_key: str | None = None, model: str | None = None, timeout: float | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout: float | None = None,
+        max_retries: int = 1,
+        max_wait_seconds: float = 6.0,
+    ):
         self.api_key = api_key if api_key is not None else settings.GEMINI_API_KEY
         self.model = model or settings.GEMINI_MODEL
         self.timeout = timeout or settings.AGENT_TIMEOUT_SECONDS
+        self.max_retries = max_retries
+        self.max_wait_seconds = max_wait_seconds
+        # Set once an RPD (daily) 429 is seen. Every later complete_json()
+        # call on THIS INSTANCE then fails instantly with no network call —
+        # see the module docstring's RETRY BEHAVIOR ON 429 section.
+        self.daily_quota_exceeded = False
 
     def complete_json(self, system_prompt: str, user_prompt: str, schema: dict) -> tuple[dict, int | None, int]:
         if not self.api_key:
             raise AgentTierError("GEMINI_API_KEY not configured")
+        if self.daily_quota_exceeded:
+            raise AgentTierError(
+                "Gemini daily quota (RPD) already exhausted earlier this run — "
+                "skipped without a network call."
+            )
 
         url = GEMINI_URL_TEMPLATE.format(model=self.model)
         body = {
@@ -57,12 +137,32 @@ class GeminiClient:
         }
 
         start = time.perf_counter()
-        try:
-            resp = httpx.post(url, params={"key": self.api_key}, json=body, timeout=self.timeout)
-            resp.raise_for_status()
-            data = resp.json()
-        except httpx.HTTPError as exc:
-            raise AgentTierError(f"Gemini call failed: {exc}") from exc
+        attempts = 0
+
+        while True:
+            try:
+                resp = httpx.post(url, params={"key": self.api_key}, json=body, timeout=self.timeout)
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 429:
+                    if _is_daily_quota_error(exc.response):
+                        self.daily_quota_exceeded = True
+                        raise AgentTierError(
+                            f"Gemini daily quota (RPD) exhausted: {exc.response.text}"
+                        ) from exc
+                    if attempts < self.max_retries:
+                        wait_s = _parse_gemini_retry_delay(exc.response, default=2.0)
+                        if wait_s <= self.max_wait_seconds:
+                            time.sleep(wait_s)
+                            attempts += 1
+                            continue
+                raise AgentTierError(
+                    f"Gemini call failed ({exc.response.status_code}): {exc.response.text}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise AgentTierError(f"Gemini call failed: {exc}") from exc
         latency_ms = int((time.perf_counter() - start) * 1000)
 
         try:
@@ -132,7 +232,6 @@ class GroqClient:
                 raise AgentTierError(f"Groq call failed: {exc}") from exc
 
         latency_ms = int((time.perf_counter() - start) * 1000)
-
 
         try:
             content = data["choices"][0]["message"]["content"]
