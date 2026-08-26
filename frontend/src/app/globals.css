@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #10162b;
+  --muted: #4b5468;
+  --line: #e4e7ee;
+  --paper: #ffffff;
+  --page: #f5f6f8;
+  --recovered: #0e8a5c;
+  --recovered-soft: #e4f5ec;
+  --risk: #b4590b;
+  --risk-soft: #fbeedf;
+  --blocked: #b23a52;
+  --blocked-soft: #fbe7ec;
+  --accent: #2b4fd8;
+  --accent-soft: #e8ecfc;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.font-display {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+}
+
+.font-data {
+  font-family: var(--font-data), ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+}
+
+.bg-dot-grid {
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Signature element: a passbook/receipt-style perforated top edge for the
+   audit ledger card. The notches only read correctly because the page
+   background behind the card is exactly --page. */
+.ledger-perforation {
+  position: relative;
+}
+.ledger-perforation::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 12px;
+  right: 12px;
+  height: 10px;
+  background: radial-gradient(circle at 10px 0px, transparent 5px, var(--page) 5.5px) repeat-x;
+  background-size: 20px 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
