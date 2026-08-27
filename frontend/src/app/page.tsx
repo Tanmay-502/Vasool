@@ -1,4 +1,4 @@
-import { getHealth, getKillSwitchStatus, getMetrics } from "@/lib/api";
+import { getHealth, getKillSwitchStatus, getMetrics, getRecentCases } from "@/lib/api";
 import { CommandBar } from "@/components/CommandBar";
 import { RecoveryLedgerHero } from "@/components/RecoveryLedgerHero";
 import { GuardrailChips } from "@/components/GuardrailChips";
@@ -7,10 +7,11 @@ import { AgentQueueGrid } from "@/components/AgentQueueGrid";
 import { AuditLedger } from "@/components/AuditLedger";
 
 export default async function Home() {
-  const [metrics, health, killSwitch] = await Promise.all([
+  const [metrics, health, killSwitch, recentCases] = await Promise.all([
     getMetrics(),
     getHealth(),
     getKillSwitchStatus(),
+    getRecentCases(),
   ]);
 
   return (
@@ -42,7 +43,7 @@ export default async function Home() {
             <AgentQueueGrid pendingReview={metrics?.cases_pending_review ?? 0} />
             <FailureReasonBars data={metrics?.by_failure_reason ?? []} />
           </div>
-          <AuditLedger entries={[]} />
+          <AuditLedger entries={recentCases} />
         </div>
       </div>
     </main>

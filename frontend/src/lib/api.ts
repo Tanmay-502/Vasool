@@ -1,3 +1,5 @@
+import type { AuditEntry } from "@/components/AuditLedger";
+
 export type FailureReasonBreakdown = {
   reason: string;
   count: number;
@@ -34,6 +36,18 @@ export type HealthResponse = {
   env: string;
 };
 
+export type AuditLedgerEntry = {
+  id: number;
+  case_id: number;
+  event_type: string;
+  detail: string;
+  created_at: string;
+};
+
+export type AuditLedgerApiResponse = {
+  entries: AuditLedgerEntry[];
+};
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 async function getJSON<T>(path: string): Promise<T | null> {
@@ -56,6 +70,18 @@ export function getKillSwitchStatus() {
 
 export function getHealth() {
   return getJSON<HealthResponse>("/health");
+}
+
+export async function getRecentCases(): Promise<AuditEntry[]> {
+  const data = await getJSON<AuditLedgerApiResponse>("/cases/recent");
+  if (!data) return [];
+  return data.entries.map((entry) => ({
+    id: entry.id,
+    timestamp: entry.created_at,
+    caseId: entry.case_id,
+    eventType: entry.event_type,
+    detail: entry.detail,
+  }));
 }
 
 export function formatINR(amount: number, opts: { compact?: boolean } = {}) {

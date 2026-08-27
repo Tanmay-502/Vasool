@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -34,3 +36,15 @@ class MetricsResponse(BaseModel):
 
     by_failure_reason: list[FailureReasonBreakdown]
     by_split: list[SplitBreakdown]
+
+
+class AuditLedgerEntry(BaseModel):
+    id: int
+    case_id: int
+    event_type: str
+    detail: str
+    created_at: datetime
+
+
+class AuditLedgerResponse(BaseModel):
+    entries: list[AuditLedgerEntry]
