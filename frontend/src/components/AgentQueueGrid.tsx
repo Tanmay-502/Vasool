@@ -1,20 +1,79 @@
-import { AlertTriangle, CreditCard, Repeat2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  CreditCard,
+  Repeat2,
+  ShoppingCart,
+  CalendarClock,
+  Building2,
+  ListOrdered,
+  Mic,
+  HandCoins,
+  FlaskConical,
+} from "lucide-react";
 
 type Props = { pendingReview: number };
 
+type RoadmapItem = {
+  title: string;
+  blurb: string;
+  metric: string;
+  icon: LucideIcon;
+};
+
 // Everything here is explicitly out of v1 scope per the PRD ("checkout
 // abandonment recovery, B2B receivables chasing" and friends are called
-// out as not-built). Shown as a labelled roadmap, not as working queues —
-// a judge clicking into a card that does nothing is worse than not
-// showing the card at all.
-const ROADMAP = [
-  "Checkout drop-off recovery",
-  "Failed-subscription retry",
-  "B2B receivables chasing",
-  "Mandate retry sequencer",
-  "Hinglish voice recovery",
-  "Promise-to-pay tracker",
+// out as not-built). Rendered as mock queue cards with sample counts and a
+// "Demo data" badge on every single one — a judge mistaking a mocked
+// number for a real one is worse than the card not existing at all, so
+// nothing here is allowed to look live.
+const ROADMAP: RoadmapItem[] = [
+  {
+    title: "Checkout drop-off recovery",
+    blurb: "Cart abandoned before payment even started — nudge before it's forgotten.",
+    metric: "18 sample carts queued",
+    icon: ShoppingCart,
+  },
+  {
+    title: "Failed-subscription retry",
+    blurb: "Recurring charge fails silently — catch it before the subscription lapses.",
+    metric: "9 sample renewals queued",
+    icon: CalendarClock,
+  },
+  {
+    title: "B2B receivables chasing",
+    blurb: "Invoice overdue, not a gateway failure — a different playbook entirely.",
+    metric: "6 sample invoices queued",
+    icon: Building2,
+  },
+  {
+    title: "Mandate retry sequencer",
+    blurb: "UPI Autopay / NACH mandate bounced — needs its own retry cadence.",
+    metric: "4 sample mandates queued",
+    icon: ListOrdered,
+  },
+  {
+    title: "Hinglish voice recovery",
+    blurb: "Voice-call nudges in Hinglish for customers who never check email.",
+    metric: "Prototype script only",
+    icon: Mic,
+  },
+  {
+    title: "Promise-to-pay tracker",
+    blurb: 'Customer says "kal kar dunga" — track it, don\'t just trust it.',
+    metric: "11 sample promises tracked",
+    icon: HandCoins,
+  },
 ];
+
+function DemoDataBadge() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dashed border-[#C7CCDA] bg-white px-2 py-0.5 font-data text-[9px] font-semibold uppercase tracking-widest text-[#4B5468]">
+      <FlaskConical size={9} />
+      Demo data
+    </span>
+  );
+}
 
 export function AgentQueueGrid({ pendingReview }: Props) {
   return (
@@ -52,19 +111,39 @@ export function AgentQueueGrid({ pendingReview }: Props) {
         </div>
       </div>
 
-      <div className="mt-5">
-        <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.1em] text-[#4B5468]">
-          <Repeat2 size={12} /> Roadmap — not built in v1
+      <div className="mt-6">
+        <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-[#4B5468]">
+          <Repeat2 size={12} /> Beyond v1 — simulated queues
         </p>
-        <div className="mt-2.5 flex flex-wrap gap-2">
-          {ROADMAP.map((item) => (
-            <span
-              key={item}
-              className="rounded-full border border-dashed border-[#E4E7EE] px-3 py-1.5 text-xs text-[#4B5468]"
-            >
-              {item}
-            </span>
-          ))}
+        <p className="mt-1 text-[11px] text-[#4B5468]">
+          Same recovery philosophy, different failure surface. Not wired to Razorpay — every card
+          below runs on sample data only.
+        </p>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {ROADMAP.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={item.title}
+                className="flex flex-col gap-2 rounded-xl border border-dashed border-[#E4E7EE] bg-[#FAFAFB] p-4"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-lg bg-[#E4E7EE] p-1.5 text-[#4B5468]">
+                      <Icon size={14} />
+                    </div>
+                    <p className="font-display text-xs font-semibold text-[#10162B]">
+                      {item.title}
+                    </p>
+                  </div>
+                  <DemoDataBadge />
+                </div>
+                <p className="text-[11px] leading-snug text-[#4B5468]">{item.blurb}</p>
+                <p className="font-data text-[10px] font-medium text-[#4B5468]">{item.metric}</p>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
