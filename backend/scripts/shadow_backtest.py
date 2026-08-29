@@ -10,6 +10,45 @@ summarize from it directly rather than re-implementing the same logic
 twice — but against EVERY failed payment that has a ground-truth label:
 dev split AND holdout split, not holdout-only.
 
+DAY 6.1 HARDENING — Windows encoding bug: every file write here originally
+used Path.write_text()/read_text() with no explicit `encoding=` argument,
+which defaults to locale.getpreferredencoding() — UTF-8 on Linux/Mac, but
+cp1252 on Windows. The report contains a rupee sign (₹, U+20B9), which
+cp1252 has no slot for. Every read_text()/write_text() call below now
+passes encoding="utf-8" explicitly, and the final console print() is
+wrapped so a legacy-codepage Windows terminal can't crash the run either.
+
+DAY 6.2 HARDENING — long-running DB connection drops (caught on the same
+real Windows run that hit the Day 6.1 bug, after that fix let it run far
+enough to hit the next one): a single SQLAlchemy session was held open
+for the entire batch and reused across every case. Somewhere around case
+100+ into a 150-case run — after enough Gemini 429 waits and Groq
+read-timeout/SSL-handshake retries to spend real wall-clock time between
+database queries — the underlying Postgres connection got closed out from
+under the session (psycopg.OperationalError: "server closed the
+connection unexpectedly"), and the run crashed. Two separate problems
+made that worse than it needed to be:
+  1. app/db.py's pool_pre_ping=True only re-validates a connection when
+     it's checked OUT of the pool. This script checks one connection out
+     once, at SessionLocal() at the top of main(), and holds it for the
+     whole run — so pre_ping never got a chance to catch the dead
+     connection before a query tried to use it.
+  2. _save_cases(existing) was only called once, AFTER the whole to_score
+     loop finished. A crash on case ~104 of 150 meant the cases already
+     scored earlier in that same run were never written to
+     shadow_backtest_cases.json at all — the exact opposite of what the
+     "accumulates across runs" design below promises.
+Fix: (a) the loop now catches OperationalError/DBAPIError per case, rolls
+the session back, and retries that one case once — a rollback releases
+the dead connection back to the pool as invalid, so the retry's next
+query gets a fresh, pre-pinged connection instead of the stale one. If the
+retry also fails, that single case is skipped (logged, not raised) — it
+stays unscored and gets picked up automatically on the next invocation —
+rather than aborting every remaining case in the batch. (b)
+_save_cases(existing) now runs after every case, not just at the end of
+the loop, so a crash of any kind (DB drop, Ctrl+C, an unrelated bug) loses
+at most the one case in flight, never the whole run's progress.
+
 WHY THIS EXISTS, AND HOW IT DIFFERS FROM evaluate_holdout.py:
   evaluate_holdout.py is the strict, doc-of-record number: holdout split
   ONLY, touched once, at the end (PRD.md's "Success metrics" section,
@@ -43,25 +82,11 @@ QUOTA REALITY, AND WHY THIS ACCUMULATES ACROSS RUNS:
   next --limit NEW cases, merges the results back in, and regenerates
   reports/shadow_backtest_report.md from the FULL accumulated set every
   time — so the report always reflects everything scored so far, and a
-  quota cutoff mid-run never throws away work already done. Run it a
-  handful of times across a day or two (`--limit 150` a few times, or
-  `--run-all` once quota resets) until coverage is high enough to be a
-  credible number, then commit both files under reports/.
-
-DAY 6.1 HARDENING — Windows encoding bug (caught on a real Windows run,
-not in the sandbox this was built and tested in): every file write here
-originally used Path.write_text()/read_text() with no explicit `encoding=`
-argument. That silently defaults to locale.getpreferredencoding() — UTF-8
-on Linux/Mac, but cp1252 on Windows. The report contains a rupee sign
-(₹, U+20B9), which cp1252 has no slot for, so every real run on a Windows
-dev machine crashed with UnicodeEncodeError at the exact line the report
-file gets written. The Linux sandbox this was first verified in never hit
-it, because its default encoding is already UTF-8 — same category of "CI
-passes, real environment doesn't" landmine as the SQLite/JSONB dialect
-issue from Day 2. Fix: every read_text()/write_text() call below now
-passes encoding="utf-8" explicitly, and the final console print() is
-wrapped so a legacy-codepage Windows terminal can't crash the run either
-(falls back to an ASCII-safe rendering instead of raising).
+  quota cutoff (or, per Day 6.2 above, a DB/network cutoff) mid-run never
+  throws away work already done. Run it a handful of times across a day
+  or two (`--limit 150` a few times, or `--run-all` once quota resets)
+  until coverage is high enough to be a credible number, then commit both
+  files under reports/.
 
 Shadow mode: no AgentDecision/PolicyCheck rows written, no case.status
 changes, no Razorpay calls. Safe to re-run as many times as you like.
@@ -72,6 +97,8 @@ import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+
+from sqlalchemy.exc import DBAPIError, OperationalError
 
 from app.agents.llm_clients import GeminiClient, GroqClient
 from app.db import SessionLocal
@@ -89,21 +116,9 @@ def _load_existing_cases() -> dict:
     """Keyed by str(case_id) -> ScoredCase-as-dict.
 
     Deliberately reads the CASES_FILE module-level name directly inside the
-    function body rather than binding it as a default parameter value. A
-    bound default (`def _load_existing_cases(path=CASES_FILE)`) is
-    evaluated exactly once, at function-DEFINITION time (module import) —
-    so a test that does `monkeypatch.setattr(shadow_backtest, "CASES_FILE",
-    tmp_path)` AFTER this module is already imported would silently have no
-    effect, and the function would keep reading/writing the original path.
-    Referencing the name fresh inside the body means Python looks it up in
-    the module's namespace on every call, so the patched value is what
-    actually gets used.
-
-    encoding="utf-8" is explicit here — see the DAY 6.1 HARDENING note in
-    the module docstring. Without it, this falls back to whatever the OS
-    considers its "preferred" encoding, which is cp1252 on Windows and
-    can't round-trip anything this file's sibling (_save_cases) wrote with
-    an explicit UTF-8 encoding.
+    function body rather than binding it as a default parameter value — see
+    the module's test suite for the regression this guards against.
+    encoding="utf-8" is explicit — see the DAY 6.1 HARDENING note above.
     """
     if not CASES_FILE.exists():
         return {}
@@ -112,9 +127,11 @@ def _load_existing_cases() -> dict:
 
 def _save_cases(cases: dict) -> None:
     """Same reasoning as _load_existing_cases() above — CASES_FILE is read
-    fresh here, not bound as a default argument. encoding="utf-8" is
-    explicit for the same reason described in the module's DAY 6.1
-    HARDENING note."""
+    fresh here, not bound as a default argument. Called after EVERY case
+    scored (see DAY 6.2 HARDENING above) — not just once at the end of a
+    batch — so a mid-run crash of any kind never discards already-scored
+    work. Writing a small JSON file after each case is cheap (milliseconds)
+    next to LLM call latency (seconds), so this costs nothing meaningful."""
     CASES_FILE.parent.mkdir(parents=True, exist_ok=True)
     CASES_FILE.write_text(json.dumps(cases, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -125,6 +142,37 @@ def _scored_case_to_dict(scored: ScoredCase) -> dict:
 
 def _dict_to_scored_case(data: dict) -> ScoredCase:
     return ScoredCase(**data)
+
+
+def _score_case_with_db_retry(db, case, gemini, groq) -> ScoredCase | None:
+    """Wraps evaluate_holdout._score_case with one bounded retry against a
+    transient DB connection drop (see DAY 6.2 HARDENING in the module
+    docstring). Returns None if the case couldn't be scored even after a
+    retry — the caller skips it and moves on; it stays unscored on disk and
+    gets picked up automatically on the next invocation of this script."""
+    try:
+        return _score_case(db, case, gemini, groq)
+    except (OperationalError, DBAPIError) as exc:
+        print(
+            f"  [case {case.id}: DB connection dropped ({exc.__class__.__name__}) "
+            "— rolling back and retrying once...]"
+        )
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001 — rollback itself failing is not fatal here
+            pass
+        try:
+            return _score_case(db, case, gemini, groq)
+        except (OperationalError, DBAPIError) as exc2:
+            print(
+                f"  [case {case.id}: retry also failed ({exc2.__class__.__name__}) "
+                "— skipping for now, it will be picked up on the next run.]"
+            )
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            return None
 
 
 def _render_report(
@@ -259,10 +307,18 @@ def main(limit: int | None, run_all: bool) -> None:
             patient_gemini = GeminiClient(max_retries=3, max_wait_seconds=45.0)
             groq = GroqClient()
             gemini_exhausted_notice_shown = False
+            skipped_case_ids: list[int] = []
 
             for i, case in enumerate(to_score, start=1):
-                scored = _score_case(db, case, patient_gemini, groq)
+                scored = _score_case_with_db_retry(db, case, patient_gemini, groq)
+                if scored is None:
+                    skipped_case_ids.append(case.id)
+                    continue
+
                 existing[str(scored.case_id)] = _scored_case_to_dict(scored)
+                # Save after every case, not just at the end of the batch —
+                # see DAY 6.2 HARDENING above.
+                _save_cases(existing)
 
                 if patient_gemini.daily_quota_exceeded and not gemini_exhausted_notice_shown:
                     print(
@@ -274,8 +330,13 @@ def main(limit: int | None, run_all: bool) -> None:
                 if i % 20 == 0:
                     print(f"  ...{i}/{len(to_score)} new cases scored")
 
-            _save_cases(existing)
             print(f"Saved {len(existing)} accumulated cases to {CASES_FILE}")
+            if skipped_case_ids:
+                print(
+                    f"Skipped {len(skipped_case_ids)} case(s) after a DB error survived a "
+                    f"retry: {skipped_case_ids}. They stay unscored and will be retried "
+                    "automatically the next time this script runs."
+                )
 
         all_scored = [_dict_to_scored_case(v) for v in existing.values()]
         report_text = _render_report(all_scored, total_dataset_size, datetime.now(timezone.utc))
