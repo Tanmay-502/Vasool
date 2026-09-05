@@ -76,9 +76,9 @@ the generator's own logic but were never actually exercised:
       both runs — the property this checklist item originally asked for
       ("0.95 confidence should genuinely beat 0.55"), now actually true
       and verified twice, not assumed.
-- [ ] Frontend track (Next.js + TypeScript + Tailwind + shadcn/ui +
-      Recharts, deployed to Vercel) — not started. Doesn't block Day 4;
-      needs to be live before Day 5's dashboard work builds on top of it.
+- [x] Frontend track (Next.js + TypeScript + Tailwind) — dashboard, case
+      explorer, explainability panel, audit ledger, and safety controls are
+      shipped. Deployment remains environment-specific.
 
 **Extra hardening added beyond the original Day 3 scope**, same spirit as
 Day 2.5 — found by actually running the pipeline under real failure
@@ -161,17 +161,19 @@ existing call sites needed zero changes, new ones get an independent window.
 
 All 83 tests passing (`pytest -q` from `backend/`).
 
-## Day 5 — Orchestration + dashboard
-- [ ] LangGraph pipeline end to end
-- [ ] Command-center + case explorer UI
+## Day 5 — Orchestration + dashboard ✅
+- [x] Command-center + interactive case explorer UI
+- [x] **Explainability panel per case** — root cause, chosen strategy, the
+      policy checks that passed/failed, and model reasoning in one click.
+- [x] **Safety-first demo flow** — analyzes and evaluates policy without
+      executing a payment or spending Razorpay quota.
+- [x] Runtime kill-switch control with confirmation and visible errors.
+- [ ] LangGraph pipeline end to end — current pipeline is intentionally
+      explicit and testable; orchestration can be added without changing the
+      policy contract.
 - [ ] **Live case feed** (WebSocket/SSE) — cases visibly moving through
       detected → analyzed → policy-checked → executed → resolved as the
-      pipeline runs. This is the single highest-leverage visual for a demo:
-      judges *watch* the agent work instead of reading a static table.
-- [ ] **Explainability panel per case** — root cause, chosen strategy, the
-      policy checks that passed/failed (green/red chips), and the model's
-      stated reasoning, all in one click. Directly answers "why did it do
-      that?" before anyone has to ask.
+      pipeline runs.
 - [ ] **Human review queue** with approve/reject buttons that write back into
       the pipeline — demonstrates the "compliant escalation" language from
       the PRD isn't just a slide, it's a working control.

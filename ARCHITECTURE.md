@@ -3,20 +3,24 @@
 ## Flow
 
 Payment fails
-v
-Root Cause Agent (Gemini -> Groq fallback -> rules fallback)
-v
+  |
+Root Cause Agent (Gemini -> Groq -> rules fallback)
+  |
 Recovery Strategy Agent (same fallback chain)
-v
-Policy / Guardrail Engine (deterministic, zero LLM, unit-tested)
-v
-EXECUTE or HUMAN_REVIEW / BLOCK
-v
-Razorpay Test Mode API (real sandbox call)
-v
-Outcome Engine
-v
-Audit Log (append-only — every step above writes here)
+  |
+Policy / Guardrail Engine (deterministic, zero LLM)
+  |-------------------------------|
+  |                               |
+EXECUTE                     HUMAN_REVIEW / BLOCK
+  |                               |
+Razorpay Test Mode API            Review queue
+  |-------------------------------|
+              |
+       Audit Log (append-only)
+
+The dashboard reads the same case, decision, policy-check, metrics, and audit
+surfaces. Its "Analyze demo case" action stops before EXECUTE, so a rehearsal
+cannot create a Payment Link.
 
 
 ## Decisions log
@@ -36,5 +40,6 @@ Audit Log (append-only — every step above writes here)
 | 4 | `Action.idempotency_key` reused as Razorpay's `reference_id` | Razorpay itself rejects a duplicate `reference_id`, so idempotency is enforced by Razorpay's API, not just an internal DB unique constraint | Generate a separate internal-only key, never send it to Razorpay |
 | 4 | Global kill switch is a runtime-mutable settings singleton flag, flipped via `POST /admin/kill-switch`, not a persisted DB row | Zero schema/migration cost; same single-process assumption already used for the rate limiter and circuit breaker | A `kill_switches` table checked per-request |
 | 4 | `app/rate_limit.py` rewritten to key its buckets instead of one shared global deque | Caught before shipping: adding the Razorpay execute endpoint on the same counter as `/analyze` would have let one endpoint silently drain the other's budget | A separate rate-limiter module per endpoint |
+| 5 | Dashboard demo stops after policy evaluation; execution remains a separate endpoint | Judges can inspect the complete decision trail without spending Razorpay Test Mode quota or contacting a customer | Run `/execute` directly from the demo UI |
 
 *(Add a row every day you make a real call — this is what you defend in the panel round.)*
