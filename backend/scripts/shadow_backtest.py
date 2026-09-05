@@ -101,6 +101,10 @@ from pathlib import Path
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from app.agents.llm_clients import GeminiClient, GroqClient
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 from app.db import SessionLocal
 from app.models import GroundTruth, Payment, RecoveryCase
 from scripts.evaluate_holdout import ScoredCase, _score_case, summarize
@@ -110,6 +114,19 @@ CASES_FILE = REPORTS_DIR / "shadow_backtest_cases.json"
 REPORT_FILE = REPORTS_DIR / "shadow_backtest_report.md"
 
 DEFAULT_LIMIT = 150
+
+def _build_gemini_pool() -> list[GeminiClient]:
+    """Rotates across multiple free-tier Gemini API keys, each with its own
+    independent 20 RPD quota. Extends coverage per shadow_backtest run
+    without paying for a higher tier. Falls back to whatever keys are
+    actually set in .env — works fine with just one."""
+    keys = [
+        os.getenv("GEMINI_API_KEY"),
+        os.getenv("GEMINI_API_KEY_2"),
+        os.getenv("GEMINI_API_KEY_3"),
+    ]
+    keys = [k for k in keys if k]
+    return [GeminiClient(api_key=k, max_retries=3, max_wait_seconds=45.0) for k in keys]
 
 
 def _load_existing_cases() -> dict:
@@ -304,7 +321,9 @@ def main(limit: int | None, run_all: bool) -> None:
                 f"before this run, {total_dataset_size} total)..."
             )
 
-            patient_gemini = GeminiClient(max_retries=3, max_wait_seconds=45.0)
+            gemini_pool = _build_gemini_pool()
+            pool_index = 0
+            patient_gemini = gemini_pool[pool_index]
             groq = GroqClient()
             gemini_exhausted_notice_shown = False
             skipped_case_ids: list[int] = []
@@ -320,12 +339,17 @@ def main(limit: int | None, run_all: bool) -> None:
                 # see DAY 6.2 HARDENING above.
                 _save_cases(existing)
 
-                if patient_gemini.daily_quota_exceeded and not gemini_exhausted_notice_shown:
-                    print(
-                        f"  [Gemini daily quota exhausted after case {i}/{len(to_score)} — "
-                        "remaining cases this run score via Groq/rules only.]"
-                    )
-                    gemini_exhausted_notice_shown = True
+                if patient_gemini.daily_quota_exceeded:
+                    if pool_index + 1 < len(gemini_pool):
+                        pool_index += 1
+                        patient_gemini = gemini_pool[pool_index]
+                        print(f"  [Gemini key #{pool_index} exhausted — switched to backup key #{pool_index + 1}]")
+                    elif not gemini_exhausted_notice_shown:
+                        print(
+                            f"  [All {len(gemini_pool)} Gemini keys exhausted after case {i}/{len(to_score)} — "
+                            "remaining cases this run score via Groq/rules only.]"
+                        )
+                        gemini_exhausted_notice_shown = True
 
                 if i % 20 == 0:
                     print(f"  ...{i}/{len(to_score)} new cases scored")
