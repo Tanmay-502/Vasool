@@ -37,7 +37,7 @@ def seed_minimal_dataset(db):
     )
     db.add(payment1)
     db.flush()
-    case1 = RecoveryCase(payment_id=payment1.id, status="resolved")
+    case1 = RecoveryCase(payment_id=payment1.id, status="human_review")
     db.add(case1)
     db.flush()
     db.add(Outcome(recovery_case_id=case1.id, recovered_amount_paise=20000, success=True))
@@ -100,8 +100,8 @@ def test_metrics_shape_and_math(client, db_session):
     assert data["revenue_recovered_inr"] == 200.0
     assert data["recovery_rate_pct"] == round(20000 / 50000 * 100, 2)
 
-    # only order_fail_pending's case is still "detected"
-    assert data["cases_pending_review"] == 1
+    # both detected and human_review cases remain in the review queue
+    assert data["cases_pending_review"] == 2
 
     # one of two ground truth rows is recoverable
     assert data["ground_truth_recoverable_count"] == 1
