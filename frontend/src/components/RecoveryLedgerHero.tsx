@@ -23,7 +23,7 @@ export function RecoveryLedgerHero({ metrics }: { metrics: MetricsResponse | nul
           </p>
         </div>
 
-        <div className="flex gap-8">
+        <div className="grid grid-cols-3 gap-4 sm:gap-8">
           <MiniStat label="Failed payments" value={metrics?.total_failed_payments ?? "—"} />
           <MiniStat label="Failure rate" value={metrics ? `${metrics.failure_rate_pct}%` : "—"} />
           <MiniStat label="Awaiting review" value={metrics?.cases_pending_review ?? "—"} accent="risk" />
