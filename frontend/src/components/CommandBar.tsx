@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ShieldAlert, ShieldCheck, Wifi, WifiOff } from "lucide-react";
-import { getHealth, getKillSwitchStatus } from "@/lib/api";
+import { getHealth, getKillSwitchStatus, setKillSwitch as updateKillSwitch } from "@/lib/api";
 
 type Props = {
   initialOnline: boolean;
@@ -11,20 +11,40 @@ type Props = {
 
 export function CommandBar({ initialOnline, initialKillSwitch }: Props) {
   const [online, setOnline] = useState(initialOnline);
-  const [killSwitch, setKillSwitch] = useState(initialKillSwitch);
+  const [killSwitch, setKillSwitchState] = useState(initialKillSwitch);
+  const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const poll = async () => {
       const [health, kill] = await Promise.all([getHealth(), getKillSwitchStatus()]);
       setOnline(health?.status === "ok");
-      if (kill) setKillSwitch(kill.kill_switch_engaged);
+      if (kill) setKillSwitchState(kill.kill_switch_engaged);
     };
     const id = setInterval(poll, 8000);
     return () => clearInterval(id);
   }, []);
 
+  const toggleKillSwitch = async () => {
+    const message = killSwitch
+      ? "Disengage the kill switch and allow policy-approved automation again?"
+      : "Engage the kill switch? All new auto-execution decisions will be routed to human review.";
+    if (!window.confirm(message)) return;
+
+    setUpdating(true);
+    setError("");
+    try {
+      const result = await updateKillSwitch(!killSwitch);
+      setKillSwitchState(result.kill_switch_engaged);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the kill switch.");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <span
         className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-data text-xs font-medium ${
           online
@@ -35,16 +55,21 @@ export function CommandBar({ initialOnline, initialKillSwitch }: Props) {
         {online ? <Wifi size={13} /> : <WifiOff size={13} />}
         {online ? "Pipeline online" : "Backend unreachable"}
       </span>
-      <span
+      <button
+        onClick={toggleKillSwitch}
+        disabled={updating}
+        title={killSwitch ? "Disengage kill switch" : "Engage kill switch"}
         className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-data text-xs font-medium ${
           killSwitch
             ? "border-[#B4590B]/25 bg-[#FBEEDF] text-[#B4590B]"
             : "border-[#2B4FD8]/20 bg-[#E8ECFC] text-[#2B4FD8]"
-        }`}
+        } disabled:opacity-60`}
       >
         {killSwitch ? <ShieldAlert size={13} /> : <ShieldCheck size={13} />}
         {killSwitch ? "Kill switch engaged" : "Kill switch armed"}
-      </span>
+      </button>
+      <span className="hidden text-[11px] text-[#4B5468] xl:inline">Safety controls</span>
+      {error && <span className="basis-full text-right text-[11px] text-[#B23A52]">{error}</span>}
     </div>
   );
 }

@@ -21,10 +21,10 @@ _KNOWN_REASONS = {c.value for c in RootCauseCategory if c != RootCauseCategory.U
 
 
 def root_cause_fallback(context: dict) -> RootCauseOutput:
-    reason = context.get("failure_reason")
+    reason = str(context.get("failure_reason") or "").strip().lower()
     if reason in _KNOWN_REASONS:
         category = RootCauseCategory(reason)
-        confidence = 0.6  # gateway told us directly, but no LLM cross-check happened
+        confidence = 0.68  # gateway signal is strong, but no LLM cross-check happened
     else:
         category = RootCauseCategory.UNKNOWN
         confidence = 0.25
@@ -50,25 +50,24 @@ def recovery_strategy_fallback(context: dict) -> RecoveryStrategyOutput:
             reasoning="rules_fallback: risk-flagged cases always go to a human, regardless of anything else.",
         )
 
-    if attempt_number >= 3:
-        return RecoveryStrategyOutput(
-            action=RecoveryAction.ESCALATE_HUMAN,
-            confidence=0.55,
-            reasoning="rules_fallback: already retried repeatedly, stop and escalate rather than keep trying.",
-        )
-
     if is_transient:
         return RecoveryStrategyOutput(
             action=RecoveryAction.RETRY_NOW,
-            confidence=0.65,
-            reasoning="rules_fallback: transient failure signal, safe to retry immediately.",
+            confidence=0.68 if attempt_number == 1 else 0.48,
+            reasoning=(
+                "rules_fallback: transient failure signal supports a retry; "
+                f"attempt {attempt_number} lowers confidence and the policy retry ceiling remains authoritative."
+            ),
         )
 
     if category in {RootCauseCategory.INSUFFICIENT_FUNDS.value, RootCauseCategory.LIMIT_EXCEEDED.value}:
         return RecoveryStrategyOutput(
             action=RecoveryAction.RETRY_LATER,
-            confidence=0.55,
-            reasoning="rules_fallback: funds/limit issue, give it time before retrying.",
+            confidence=0.55 if attempt_number == 1 else 0.45,
+            reasoning=(
+                "rules_fallback: funds/limit issue, give it time before retrying; "
+                f"attempt {attempt_number} lowers confidence."
+            ),
         )
 
     if category in {
@@ -82,10 +81,16 @@ def recovery_strategy_fallback(context: dict) -> RecoveryStrategyOutput:
                 confidence=0.5,
                 reasoning="rules_fallback: would normally send a payment link, but customer opted out of contact.",
             )
+        if attempt_number == 1:
+            return RecoveryStrategyOutput(
+                action=RecoveryAction.SEND_PAYMENT_LINK,
+                confidence=0.56,
+                reasoning="rules_fallback: first attempt card/user-side issue, a fresh payment link is the safest nudge.",
+            )
         return RecoveryStrategyOutput(
-            action=RecoveryAction.SEND_PAYMENT_LINK,
-            confidence=0.5,
-            reasoning="rules_fallback: card/user-side issue, a fresh payment link is the safest nudge.",
+            action=RecoveryAction.NO_ACTION,
+            confidence=0.42,
+            reasoning="rules_fallback: repeated card/user-side failure makes another automated contact unlikely to help.",
         )
 
     return RecoveryStrategyOutput(

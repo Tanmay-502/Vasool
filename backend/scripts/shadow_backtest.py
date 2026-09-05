@@ -126,6 +126,11 @@ def _build_gemini_pool() -> list[GeminiClient]:
         os.getenv("GEMINI_API_KEY_3"),
     ]
     keys = [k for k in keys if k]
+    if not keys:
+        # Keep the shadow run usable in local/CI environments without a
+        # Gemini key; the client fails fast and the normal Groq/rules fallback
+        # chain still produces a scored result.
+        return [GeminiClient(max_retries=0, max_wait_seconds=0.0)]
     return [GeminiClient(api_key=k, max_retries=3, max_wait_seconds=45.0) for k in keys]
 
 

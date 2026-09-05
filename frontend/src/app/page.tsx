@@ -1,17 +1,19 @@
-import { getHealth, getKillSwitchStatus, getMetrics, getRecentCases } from "@/lib/api";
+import { getCases, getHealth, getKillSwitchStatus, getMetrics, getRecentCases } from "@/lib/api";
 import { CommandBar } from "@/components/CommandBar";
 import { RecoveryLedgerHero } from "@/components/RecoveryLedgerHero";
 import { GuardrailChips } from "@/components/GuardrailChips";
 import { FailureReasonBars } from "@/components/FailureReasonBars";
 import { AgentQueueGrid } from "@/components/AgentQueueGrid";
 import { AuditLedger } from "@/components/AuditLedger";
+import { CaseExplorer } from "@/components/CaseExplorer";
 
 export default async function Home() {
-  const [metrics, health, killSwitch, recentCases] = await Promise.all([
+  const [metrics, health, killSwitch, recentCases, cases] = await Promise.all([
     getMetrics(),
     getHealth(),
     getKillSwitchStatus(),
     getRecentCases(),
+    getCases(),
   ]);
 
   return (
@@ -23,6 +25,7 @@ export default async function Home() {
               Razorpay AI Buildathon · Track 03
             </p>
             <h1 className="font-display mt-1 text-3xl font-bold text-[#10162B]">Vasool</h1>
+            <p className="mt-1 max-w-xl text-sm text-[#4B5468]">Explainable, policy-gated recovery for failed payments — with a human in control.</p>
           </div>
           <CommandBar
             initialOnline={health?.status === "ok"}
@@ -36,6 +39,10 @@ export default async function Home() {
 
         <div className="mt-6">
           <GuardrailChips killSwitchEngaged={killSwitch?.kill_switch_engaged ?? false} />
+        </div>
+
+        <div className="mt-6">
+          <CaseExplorer initialCases={cases?.cases ?? []} />
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">

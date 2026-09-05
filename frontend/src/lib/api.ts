@@ -48,6 +48,33 @@ export type AuditLedgerApiResponse = {
   entries: AuditLedgerEntry[];
 };
 
+export type CaseSummary = {
+  id: number;
+  status: string;
+  amount_paise: number;
+  amount_inr: number;
+  currency: string;
+  failure_reason: string;
+  payment_method: string;
+  attempt_number: number;
+  customer_name: string;
+  customer_opted_out: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PolicyCheck = { check_name: string; passed: boolean; reason: string };
+export type CaseDetail = {
+  case: CaseSummary;
+  root_cause: { root_cause_category?: string; is_transient?: boolean; reasoning?: string; confidence?: number } | null;
+  root_cause_meta: { confidence: number; model_used: string; latency_ms: number | null } | null;
+  strategy: { action?: string; reasoning?: string; confidence?: number } | null;
+  strategy_meta: { confidence: number; model_used: string; latency_ms: number | null } | null;
+  policy_checks: PolicyCheck[];
+};
+
+export type CasesResponse = { cases: CaseSummary[] };
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 async function getJSON<T>(path: string): Promise<T | null> {
@@ -60,6 +87,22 @@ async function getJSON<T>(path: string): Promise<T | null> {
   }
 }
 
+async function postJSON<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  const body = (await res.json().catch(() => null)) as { detail?: string } | T | null;
+  if (!res.ok) {
+    throw new Error(
+      body && typeof body === "object" && "detail" in body
+        ? body.detail ?? `Request failed (${res.status})`
+        : `Request failed (${res.status})`,
+    );
+  }
+  return body as T;
+}
+
 export function getMetrics() {
   return getJSON<MetricsResponse>("/metrics");
 }
@@ -70,6 +113,26 @@ export function getKillSwitchStatus() {
 
 export function getHealth() {
   return getJSON<HealthResponse>("/health");
+}
+
+export function getCases() {
+  return getJSON<CasesResponse>("/cases");
+}
+
+export function getCase(caseId: number) {
+  return getJSON<CaseDetail>(`/cases/${caseId}`);
+}
+
+export function analyzeCase(caseId: number) {
+  return postJSON<Record<string, unknown>>(`/cases/${caseId}/analyze?force=true`);
+}
+
+export function evaluatePolicy(caseId: number) {
+  return postJSON<Record<string, unknown>>(`/cases/${caseId}/evaluate-policy`);
+}
+
+export function setKillSwitch(engaged: boolean) {
+  return postJSON<KillSwitchStatus>(`/admin/kill-switch/${engaged ? "engage" : "disengage"}`);
 }
 
 export async function getRecentCases(): Promise<AuditEntry[]> {
