@@ -1,4 +1,4 @@
-from app.models import AuditLog, Customer, Merchant, Order, Payment, RecoveryCase
+from app.models import AgentDecision, AuditLog, Customer, Merchant, Order, Payment, PolicyCheck, RecoveryCase
 
 
 def _seed_case(db):
@@ -66,3 +66,35 @@ def test_recent_cases_respects_limit(client, db_session):
 
     response = client.get("/cases/recent?limit=2")
     assert len(response.json()["entries"]) == 2
+
+
+def test_case_list_and_detail_include_decision_context(client, db_session):
+    case = _seed_case(db_session)
+    db_session.add(
+        AgentDecision(
+            recovery_case_id=case.id,
+            agent_name="root_cause_agent",
+            model_used="rules_fallback:rules-v1",
+            input_snapshot={},
+            output={"root_cause_category": "otp_timeout", "reasoning": "Transient timeout"},
+            confidence=0.88,
+        )
+    )
+    db_session.add(
+        PolicyCheck(
+            recovery_case_id=case.id,
+            check_name="confidence_floor",
+            passed=True,
+            reason="confidence meets floor",
+        )
+    )
+    db_session.commit()
+
+    listing = client.get("/cases")
+    assert listing.status_code == 200
+    assert listing.json()["cases"][0]["id"] == case.id
+
+    detail = client.get(f"/cases/{case.id}")
+    assert detail.status_code == 200
+    assert detail.json()["root_cause"]["root_cause_category"] == "otp_timeout"
+    assert detail.json()["policy_checks"][0]["check_name"] == "confidence_floor"
