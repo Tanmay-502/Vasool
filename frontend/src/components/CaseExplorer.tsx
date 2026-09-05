@@ -71,13 +71,17 @@ export function CaseExplorer({ initialCases }: { initialCases: CaseSummary[] }) 
           <p className="mt-2 inline-flex rounded-full bg-[#E8ECFC] px-2.5 py-1 text-[11px] font-medium text-[#2B4FD8]">Demo mode · no payment is executed</p>
         </div>
         {cases[0] && (
-          <button onClick={() => runDemo(cases[0].id)} disabled={running} className="inline-flex items-center gap-2 rounded-lg bg-[#2B4FD8] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#203ca8] disabled:cursor-wait disabled:opacity-60">
+          <button
+            onClick={() => runDemo(activeCase?.id ?? cases[0].id)}
+            disabled={running}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#2B4FD8] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#203ca8] disabled:cursor-wait disabled:opacity-60"
+          >
             {running ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
-            {running ? "Analyzing safely…" : "Analyze demo case"}
+            {running ? "Analyzing safely…" : activeCase ? `Analyze case #${activeCase.id}` : "Analyze demo case"}
           </button>
         )}
       </div>
-      {error && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#FBE7EC] px-3 py-2 text-sm text-[#B23A52]"><span>{error}</span>{cases[0] && <button onClick={() => runDemo(cases[0].id)} disabled={running} className="rounded-md border border-[#B23A52]/30 px-2.5 py-1 text-xs font-semibold hover:bg-white disabled:opacity-60">Try again</button>}</div>}
+      {error && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#FBE7EC] px-3 py-2 text-sm text-[#B23A52]"><span>{error}</span>{cases[0] && <button onClick={() => runDemo(activeCase?.id ?? cases[0].id)} disabled={running} className="rounded-md border border-[#B23A52]/30 px-2.5 py-1 text-xs font-semibold hover:bg-white disabled:opacity-60">Try again</button>}</div>}
       <div className="mt-6 flex flex-col gap-2 sm:flex-row">
         <label className="relative min-w-0 flex-1">
           <span className="sr-only">Search recovery cases</span>
