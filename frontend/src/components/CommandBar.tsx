@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldAlert, ShieldCheck, Wifi, WifiOff } from "lucide-react";
+import { RefreshCw, ShieldAlert, ShieldCheck, Wifi, WifiOff } from "lucide-react";
 import { getHealth, getKillSwitchStatus, setKillSwitch as updateKillSwitch } from "@/lib/api";
 
 type Props = {
@@ -45,6 +45,15 @@ export function CommandBar({ initialOnline, initialKillSwitch }: Props) {
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
+      <button
+        onClick={() => window.location.reload()}
+        title="Refresh dashboard data"
+        aria-label="Refresh dashboard data"
+        className="inline-flex items-center gap-1.5 rounded-full border border-[#E4E7EE] bg-white px-3 py-1 font-data text-xs font-medium text-[#4B5468] transition hover:border-[#AAB5D8] hover:text-[#10162B]"
+      >
+        <RefreshCw size={13} />
+        Refresh
+      </button>
       <span
         className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-data text-xs font-medium ${
           online
