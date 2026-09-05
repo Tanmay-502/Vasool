@@ -44,6 +44,12 @@ Link.
 
 ## Commands
 
+The demo flow never calls the execution endpoint or creates a Razorpay Payment
+Link.
+
+## Commands
+
+>>>>>>> origin/main
 ```powershell
 npm run dev
 npm run lint
