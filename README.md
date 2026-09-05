@@ -8,6 +8,18 @@ layer between an AI suggestion and any money-touching operation.
 
 Built for the **Razorpay AI Buildathon 2026 — Track 03: AI Revenue Recovery**.
 
+## Live demo
+
+| Surface | Link |
+|---|---|
+| **Vasool dashboard** | [vasool-two.vercel.app](https://vasool-two.vercel.app/) |
+| **Backend health** | [vasool-ta24.onrender.com/health](https://vasool-ta24.onrender.com/health) |
+| **Backend API docs** | [vasool-ta24.onrender.com/docs](https://vasool-ta24.onrender.com/docs) |
+
+Open the dashboard first. The backend may take a few seconds to wake from
+Render's free-tier sleep; refresh once if the first request reports that the
+pipeline is offline.
+
 ## What a judge can see in two minutes
 
 1. Open the dashboard and see revenue at risk, recovery metrics, queue state,
