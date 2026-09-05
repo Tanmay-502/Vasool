@@ -34,6 +34,11 @@ The dashboard's demo flow is explicitly **non-executing**: it analyzes and
 policy-evaluates a case but never calls Razorpay. Real Test Mode execution is
 available only through the separate, policy-gated execution endpoint.
 
+The dashboard's **Awaiting review** number includes newly detected cases plus
+cases explicitly routed to `HUMAN_REVIEW` or `BLOCKED`. Model quality is
+evaluated separately in shadow mode against the frozen holdout split; the live
+dashboard never reads ground truth to make a decision.
+
 ## Why Vasool is safe
 
 AI proposes; deterministic policy decides.

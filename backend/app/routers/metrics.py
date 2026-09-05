@@ -47,7 +47,9 @@ def get_metrics(db: Session = Depends(get_db)):
     )
 
     cases_pending_review = (
-        db.query(func.count(RecoveryCase.id)).filter(RecoveryCase.status == "detected").scalar()
+        db.query(func.count(RecoveryCase.id))
+        .filter(RecoveryCase.status.in_(("detected", "human_review", "blocked")))
+        .scalar()
         or 0
     )
 
