@@ -26,8 +26,12 @@ SYSTEM_PROMPT = (
     "Given the signal from a single failed payment, classify why it failed "
     "and whether it looks transient (a bare retry right now would plausibly "
     "succeed) or persistent (retrying as-is won't help without a different "
-    "action). Calibrate confidence to how certain the signal genuinely makes "
-    "you — do not default to a high number out of habit."
+    "action). The payment gateway's failure_reason is the strongest signal: "
+    "when it exactly matches one of the allowed categories, preserve that "
+    "category instead of inventing a different cause. Treat risk_flagged as "
+    "non-transient and always requiring human review. Calibrate confidence "
+    "to how certain the signal genuinely makes you — do not default to a "
+    "high number out of habit."
 )
 
 

@@ -139,6 +139,33 @@ def test_recovery_strategy_risk_flagged_always_escalates_even_on_rules_fallback(
     assert result.tier == "rules_fallback"
     assert result.output.action.value == "escalate_human"
 
+
+def test_recovery_strategy_keeps_transient_repeat_as_a_candidate_but_lowers_confidence():
+    context = {**STRATEGY_CONTEXT, "attempt_number": 3}
+    gemini = FakeTierClient(error=AgentTierError("gemini down"))
+    groq = FakeTierClient(error=AgentTierError("groq down"))
+
+    result = run_recovery_strategy_agent(context, gemini=gemini, groq=groq)
+
+    assert result.output.action.value == "retry_now"
+    assert result.output.confidence < 0.75
+
+
+def test_recovery_strategy_does_not_contact_repeat_card_failure_automatically():
+    context = {
+        **STRATEGY_CONTEXT,
+        "root_cause_category": "card_declined",
+        "is_transient": False,
+        "attempt_number": 2,
+    }
+    gemini = FakeTierClient(error=AgentTierError("gemini down"))
+    groq = FakeTierClient(error=AgentTierError("groq down"))
+
+    result = run_recovery_strategy_agent(context, gemini=gemini, groq=groq)
+
+    assert result.output.action.value == "no_action"
+    assert result.output.confidence < 0.75
+
 def test_circuit_breaker_skips_gemini_after_repeated_failures():
     
 
