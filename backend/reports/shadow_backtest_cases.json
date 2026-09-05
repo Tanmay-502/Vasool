@@ -2289,6 +2289,56 @@
     "strategy_tier": "gemini",
     "verdict": "EXECUTE"
   },
+  "305": {
+    "actual_recoverable": true,
+    "amount_paise": 333048,
+    "case_id": 305,
+    "correctly_escalated": false,
+    "predicted_recoverable": true,
+    "root_cause_tier": "groq",
+    "strategy_tier": "gemini",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "306": {
+    "actual_recoverable": true,
+    "amount_paise": 112959,
+    "case_id": 306,
+    "correctly_escalated": null,
+    "predicted_recoverable": true,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "gemini",
+    "verdict": "EXECUTE"
+  },
+  "307": {
+    "actual_recoverable": true,
+    "amount_paise": 70376,
+    "case_id": 307,
+    "correctly_escalated": false,
+    "predicted_recoverable": true,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "gemini",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "308": {
+    "actual_recoverable": false,
+    "amount_paise": 1489178,
+    "case_id": 308,
+    "correctly_escalated": true,
+    "predicted_recoverable": false,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "groq",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "309": {
+    "actual_recoverable": true,
+    "amount_paise": 60550,
+    "case_id": 309,
+    "correctly_escalated": false,
+    "predicted_recoverable": true,
+    "root_cause_tier": "groq",
+    "strategy_tier": "gemini",
+    "verdict": "HUMAN_REVIEW"
+  },
   "31": {
     "actual_recoverable": true,
     "amount_paise": 1139966,
@@ -2298,6 +2348,96 @@
     "root_cause_tier": "groq",
     "strategy_tier": "groq",
     "verdict": "HUMAN_REVIEW"
+  },
+  "310": {
+    "actual_recoverable": true,
+    "amount_paise": 18912,
+    "case_id": 310,
+    "correctly_escalated": null,
+    "predicted_recoverable": true,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "gemini",
+    "verdict": "EXECUTE"
+  },
+  "311": {
+    "actual_recoverable": true,
+    "amount_paise": 99662,
+    "case_id": 311,
+    "correctly_escalated": false,
+    "predicted_recoverable": true,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "gemini",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "312": {
+    "actual_recoverable": false,
+    "amount_paise": 85414,
+    "case_id": 312,
+    "correctly_escalated": true,
+    "predicted_recoverable": true,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "groq",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "313": {
+    "actual_recoverable": false,
+    "amount_paise": 1455077,
+    "case_id": 313,
+    "correctly_escalated": true,
+    "predicted_recoverable": false,
+    "root_cause_tier": "groq",
+    "strategy_tier": "gemini",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "314": {
+    "actual_recoverable": false,
+    "amount_paise": 15623,
+    "case_id": 314,
+    "correctly_escalated": true,
+    "predicted_recoverable": false,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "gemini",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "315": {
+    "actual_recoverable": true,
+    "amount_paise": 42747,
+    "case_id": 315,
+    "correctly_escalated": false,
+    "predicted_recoverable": true,
+    "root_cause_tier": "groq",
+    "strategy_tier": "groq",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "316": {
+    "actual_recoverable": false,
+    "amount_paise": 727197,
+    "case_id": 316,
+    "correctly_escalated": true,
+    "predicted_recoverable": true,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "gemini",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "317": {
+    "actual_recoverable": true,
+    "amount_paise": 461940,
+    "case_id": 317,
+    "correctly_escalated": false,
+    "predicted_recoverable": true,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "gemini",
+    "verdict": "HUMAN_REVIEW"
+  },
+  "318": {
+    "actual_recoverable": true,
+    "amount_paise": 36342,
+    "case_id": 318,
+    "correctly_escalated": null,
+    "predicted_recoverable": true,
+    "root_cause_tier": "gemini",
+    "strategy_tier": "gemini",
+    "verdict": "EXECUTE"
   },
   "32": {
     "actual_recoverable": false,
