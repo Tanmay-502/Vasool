@@ -26,6 +26,11 @@ export function CommandBar({ initialOnline, initialKillSwitch }: Props) {
   }, []);
 
   const toggleKillSwitch = async () => {
+    const message = killSwitch
+      ? "Disengage the kill switch and allow policy-approved automation again?"
+      : "Engage the kill switch? All new auto-execution decisions will be routed to human review.";
+    if (!window.confirm(message)) return;
+
     setUpdating(true);
     setError("");
     try {
@@ -63,6 +68,7 @@ export function CommandBar({ initialOnline, initialKillSwitch }: Props) {
         {killSwitch ? <ShieldAlert size={13} /> : <ShieldCheck size={13} />}
         {killSwitch ? "Kill switch engaged" : "Kill switch armed"}
       </button>
+      <span className="hidden text-[11px] text-[#4B5468] xl:inline">Safety controls</span>
       {error && <span className="basis-full text-right text-[11px] text-[#B23A52]">{error}</span>}
     </div>
   );

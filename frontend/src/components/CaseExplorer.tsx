@@ -8,13 +8,19 @@ export function CaseExplorer({ initialCases }: { initialCases: CaseSummary[] }) 
   const [cases, setCases] = useState(initialCases);
   const [selected, setSelected] = useState<CaseDetail | null>(null);
   const [running, setRunning] = useState(false);
+  const [loadingCase, setLoadingCase] = useState(false);
   const [error, setError] = useState("");
 
   const openCase = async (id: number) => {
+    setLoadingCase(true);
     setError("");
-    const detail = await getCase(id);
-    if (!detail) setError("Could not load this case.");
-    else setSelected(detail);
+    try {
+      const detail = await getCase(id);
+      if (!detail) setError("Could not load this case. Check that the backend is running and try again.");
+      else setSelected(detail);
+    } finally {
+      setLoadingCase(false);
+    }
   };
 
   const runDemo = async (id: number) => {
@@ -41,16 +47,17 @@ export function CaseExplorer({ initialCases }: { initialCases: CaseSummary[] }) 
         <div>
           <p className="font-data text-xs uppercase tracking-[0.16em] text-[#4B5468]">Live case room</p>
           <h2 className="font-display mt-1 text-xl font-semibold text-[#10162B]">Explainability & review queue</h2>
-          <p className="mt-1 text-sm text-[#4B5468]">Run one case through agents and see every safety decision.</p>
+          <p className="mt-1 text-sm text-[#4B5468]">Run one case through diagnosis and see every safety decision.</p>
+          <p className="mt-2 inline-flex rounded-full bg-[#E8ECFC] px-2.5 py-1 text-[11px] font-medium text-[#2B4FD8]">Demo mode · no payment is executed</p>
         </div>
         {cases[0] && (
           <button onClick={() => runDemo(cases[0].id)} disabled={running} className="inline-flex items-center gap-2 rounded-lg bg-[#2B4FD8] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#203ca8] disabled:cursor-wait disabled:opacity-60">
             {running ? <Loader2 size={15} className="animate-spin" /> : <Play size={15} />}
-            {running ? "Running pipeline…" : "Run demo case"}
+            {running ? "Analyzing safely…" : "Analyze demo case"}
           </button>
         )}
       </div>
-      {error && <p className="mt-4 rounded-lg bg-[#FBE7EC] px-3 py-2 text-sm text-[#B23A52]">{error}</p>}
+      {error && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#FBE7EC] px-3 py-2 text-sm text-[#B23A52]"><span>{error}</span>{cases[0] && <button onClick={() => runDemo(cases[0].id)} disabled={running} className="rounded-md border border-[#B23A52]/30 px-2.5 py-1 text-xs font-semibold hover:bg-white disabled:opacity-60">Try again</button>}</div>}
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(220px,0.75fr)_minmax(0,1.6fr)]">
         <div className="space-y-2">
           {cases.length === 0 ? <p className="rounded-lg border border-dashed border-[#E4E7EE] p-5 text-sm text-[#4B5468]">No recovery cases found.</p> : cases.map((item) => (
@@ -63,7 +70,7 @@ export function CaseExplorer({ initialCases }: { initialCases: CaseSummary[] }) 
             </button>
           ))}
         </div>
-        {activeCase ? <CaseDetailPanel detail={selected!} /> : <div className="flex min-h-56 items-center justify-center rounded-xl border border-dashed border-[#E4E7EE] text-center text-sm text-[#4B5468]"><span>Select a case or run the demo to inspect the decision trail.</span></div>}
+        {activeCase ? <CaseDetailPanel detail={selected!} /> : <div className="flex min-h-56 items-center justify-center rounded-xl border border-dashed border-[#E4E7EE] text-center text-sm text-[#4B5468]"><span>{loadingCase ? "Loading case details…" : "Select a case or analyze the demo case to inspect the decision trail."}</span></div>}
       </div>
     </section>
   );
@@ -71,12 +78,12 @@ export function CaseExplorer({ initialCases }: { initialCases: CaseSummary[] }) 
 
 function CaseDetailPanel({ detail }: { detail: CaseDetail }) {
   const { case: item, root_cause: rootCause, strategy, policy_checks: checks } = detail;
-  const verdict = item.status === "pending_execution" ? "EXECUTE" : item.status === "blocked" ? "BLOCK" : item.status === "human_review" ? "HUMAN REVIEW" : "NOT EVALUATED";
+  const verdict = item.status === "pending_execution" ? "AUTO-APPROVED" : item.status === "blocked" ? "BLOCKED" : item.status === "human_review" ? "HUMAN REVIEW" : "NOT EVALUATED";
   return (
     <div className="min-w-0">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E4E7EE] pb-4">
         <div><p className="font-data text-xs text-[#4B5468]">CASE #{item.id} · {item.payment_method.toUpperCase()}</p><p className="mt-1 text-lg font-semibold text-[#10162B]">{item.failure_reason.replaceAll("_", " ")}</p></div>
-        <span className={`rounded-full px-3 py-1 font-data text-xs font-semibold ${verdict === "EXECUTE" ? "bg-[#E4F5EC] text-[#0E8A5C]" : verdict === "BLOCK" ? "bg-[#FBE7EC] text-[#B23A52]" : "bg-[#FBEEDF] text-[#B4590B]"}`}>{verdict}</span>
+        <span className={`rounded-full px-3 py-1 font-data text-xs font-semibold ${verdict === "AUTO-APPROVED" ? "bg-[#E4F5EC] text-[#0E8A5C]" : verdict === "BLOCKED" ? "bg-[#FBE7EC] text-[#B23A52]" : "bg-[#FBEEDF] text-[#B4590B]"}`}>{verdict}</span>
       </div>
       <div className="grid gap-3 py-4 sm:grid-cols-2">
         <Insight label="Root cause" value={rootCause?.root_cause_category?.replaceAll("_", " ") ?? "Not analyzed"} />

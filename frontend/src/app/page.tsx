@@ -25,6 +25,7 @@ export default async function Home() {
               Razorpay AI Buildathon · Track 03
             </p>
             <h1 className="font-display mt-1 text-3xl font-bold text-[#10162B]">Vasool</h1>
+            <p className="mt-1 max-w-xl text-sm text-[#4B5468]">Explainable, policy-gated recovery for failed payments — with a human in control.</p>
           </div>
           <CommandBar
             initialOnline={health?.status === "ok"}
