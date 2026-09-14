@@ -23,9 +23,12 @@ async function getJSON<T>(path: string): Promise<T | null> {
 }
 
 async function postJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers: HeadersInit = { "Content-Type": "application/json", ...(init.headers ?? {}) };
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (init.headers instanceof Headers) init.headers.forEach((value, key) => { headers[key] = value; });
+  else if (Array.isArray(init.headers)) init.headers.forEach(([key, value]) => { headers[key] = value; });
+  else if (init.headers) Object.assign(headers, init.headers);
   if (API_KEY) headers["X-API-Key"] = API_KEY;
-  const res = await fetch(`${API_URL}${path}`, { ...init, method: "POST", headers });
+  const res = await fetch(`${API_URL}${path}`, { ...init, method: "POST", headers, });
   const body = (await res.json().catch(() => null)) as { detail?: string } | T | null;
   if (!res.ok) throw new Error(body && typeof body === "object" && "detail" in body ? body.detail ?? `Request failed (${res.status})` : `Request failed (${res.status})`);
   return body as T;
