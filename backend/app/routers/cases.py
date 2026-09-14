@@ -14,7 +14,7 @@ def _build_detail(event_type: str, payload: dict) -> str:
         return f"Attempting {(payload.get('action_type') or 'recovery').replace('_', ' ')}"
     if event_type == "execution_succeeded":
         short_url = payload.get("short_url")
-        return f"Payment link created{f' — {short_url}' if short_url else ''}"
+        return f"Payment link sent — {short_url}" if short_url else "Payment link sent"
     if event_type == "execution_failed":
         return f"Execution failed: {payload.get('reason', 'unknown error')}"
     if event_type == "human_review_decision":
@@ -36,18 +36,11 @@ def get_recent_cases(limit: int = 20, db: Session = Depends(get_db)):
         .limit(safe_limit)
         .all()
     )
-    return {
-        "entries": [
-            AuditLedgerEntry(
-                id=row.id,
-                case_id=row.recovery_case_id,
-                event_type=row.event_type,
-                detail=_build_detail(row.event_type, row.payload),
-                created_at=row.created_at,
-            )
-            for row in rows
-        ]
-    }
+    return {"entries": [
+        AuditLedgerEntry(id=row.id, case_id=row.recovery_case_id, event_type=row.event_type,
+                         detail=_build_detail(row.event_type, row.payload), created_at=row.created_at)
+        for row in rows
+    ]}
 
 
 def _latest_decisions(db: Session, case_id: int) -> dict[str, AgentDecision]:
@@ -68,12 +61,7 @@ def _case_summary(case: RecoveryCase, db: Session) -> dict:
     order = payment.order
     customer = order.customer
     outcome = case.outcome
-    action = (
-        db.query(Action)
-        .filter(Action.recovery_case_id == case.id)
-        .order_by(Action.created_at.desc(), Action.id.desc())
-        .first()
-    )
+    action = db.query(Action).filter(Action.recovery_case_id == case.id).order_by(Action.created_at.desc(), Action.id.desc()).first()
     successful_event = (
         db.query(AuditLog)
         .filter(AuditLog.recovery_case_id == case.id, AuditLog.event_type == "execution_succeeded")
@@ -104,12 +92,7 @@ def _case_summary(case: RecoveryCase, db: Session) -> dict:
 @router.get("/cases")
 def list_cases(limit: int = 25, db: Session = Depends(get_db)):
     safe_limit = min(max(limit, 1), 100)
-    cases = (
-        db.query(RecoveryCase)
-        .order_by(RecoveryCase.updated_at.desc(), RecoveryCase.id.desc())
-        .limit(safe_limit)
-        .all()
-    )
+    cases = db.query(RecoveryCase).order_by(RecoveryCase.updated_at.desc(), RecoveryCase.id.desc()).limit(safe_limit).all()
     return {"cases": [_case_summary(case, db) for case in cases]}
 
 
@@ -127,30 +110,14 @@ def get_case(case_id: int, db: Session = Depends(get_db)):
         .limit(7)
         .all()
     )
-    action = (
-        db.query(Action)
-        .filter(Action.recovery_case_id == case.id)
-        .order_by(Action.created_at.desc(), Action.id.desc())
-        .first()
-    )
+    action = db.query(Action).filter(Action.recovery_case_id == case.id).order_by(Action.created_at.desc(), Action.id.desc()).first()
     return {
         "case": _case_summary(case, db),
         "root_cause": decisions.get("root_cause_agent").output if decisions.get("root_cause_agent") else None,
-        "root_cause_meta": ({
-            "confidence": decisions["root_cause_agent"].confidence,
-            "model_used": decisions["root_cause_agent"].model_used,
-            "latency_ms": decisions["root_cause_agent"].latency_ms,
-        } if decisions.get("root_cause_agent") else None),
+        "root_cause_meta": ({"confidence": decisions["root_cause_agent"].confidence, "model_used": decisions["root_cause_agent"].model_used, "latency_ms": decisions["root_cause_agent"].latency_ms} if decisions.get("root_cause_agent") else None),
         "strategy": decisions.get("recovery_strategy_agent").output if decisions.get("recovery_strategy_agent") else None,
-        "strategy_meta": ({
-            "confidence": decisions["recovery_strategy_agent"].confidence,
-            "model_used": decisions["recovery_strategy_agent"].model_used,
-            "latency_ms": decisions["recovery_strategy_agent"].latency_ms,
-        } if decisions.get("recovery_strategy_agent") else None),
-        "policy_checks": [
-            {"check_name": check.check_name, "passed": check.passed, "reason": check.reason}
-            for check in reversed(checks)
-        ],
+        "strategy_meta": ({"confidence": decisions["recovery_strategy_agent"].confidence, "model_used": decisions["recovery_strategy_agent"].model_used, "latency_ms": decisions["recovery_strategy_agent"].latency_ms} if decisions.get("recovery_strategy_agent") else None),
+        "policy_checks": [{"check_name": check.check_name, "passed": check.passed, "reason": check.reason} for check in reversed(checks)],
         "action": ({"status": action.status, "payment_link_id": action.razorpay_reference} if action else None),
         "outcome": ({"recovered_amount_paise": case.outcome.recovered_amount_paise, "success": case.outcome.success} if case.outcome else None),
     }
