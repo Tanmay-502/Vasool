@@ -20,5 +20,5 @@ def readiness(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
     except Exception:
-        return {"status": "not_ready", "env": settings.ENV, "database": "unavailable"}
-    return {"status": "ready", "env": settings.ENV, "database": "ok"}
+        return {"status": "degraded", "env": settings.ENV, "database": "unavailable"}
+    return {"status": "ok", "env": settings.ENV, "database": "ok"}
