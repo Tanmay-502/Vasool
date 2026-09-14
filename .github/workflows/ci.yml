@@ -33,6 +33,12 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      - name: Audit production dependencies
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
       - name: Lint frontend
         working-directory: frontend
         run: npm run lint
