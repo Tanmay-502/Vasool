@@ -1,9 +1,9 @@
-"""Razorpay webhook ingestion for verified recovery outcomes.
+"""Verified Razorpay Payment Link webhooks.
 
-The handler verifies the HMAC-SHA256 signature over the *raw* request body,
-uses X-Razorpay-Event-Id for idempotency, and never trusts client-side state to
-mark money as recovered. Payment Link events update the matching Action,
-RecoveryCase, Payment and Outcome rows and append an audit event.
+The handler authenticates the raw body with HMAC-SHA256, deduplicates by
+Razorpay's event id, and treats webhook state as the source of truth for
+recovery outcomes. Out-of-order terminal events never downgrade a case that
+is already verified as paid.
 """
 import hashlib
 import hmac
@@ -18,11 +18,11 @@ from app.models import Action, AuditLog, Outcome, RecoveryCase
 
 router = APIRouter()
 
-_PAYMENT_LINK_EVENTS = {
-    "payment_link.paid": "resolved",
-    "payment_link.partially_paid": "partially_recovered",
-    "payment_link.cancelled": "recovery_cancelled",
-    "payment_link.expired": "recovery_expired",
+_TRACKED_EVENTS = {
+    "payment_link.paid",
+    "payment_link.partially_paid",
+    "payment_link.cancelled",
+    "payment_link.expired",
 }
 
 
@@ -34,20 +34,14 @@ def verify_webhook_signature(raw_body: bytes, received_signature: str | None, se
 
 
 def _already_processed(db: Session, event_id: str) -> bool:
-    return (
-        db.query(AuditLog.id)
-        .filter(AuditLog.event_type == "webhook_processed")
-        .order_by(AuditLog.id.desc())
-        .all()
-    and any(
-        row.payload.get("event_id") == event_id
-        for row in db.query(AuditLog)
+    recent_events = (
+        db.query(AuditLog)
         .filter(AuditLog.event_type == "webhook_processed")
         .order_by(AuditLog.id.desc())
         .limit(500)
         .all()
     )
-    )
+    return any(row.payload.get("event_id") == event_id for row in recent_events)
 
 
 def _link_entity(payload: dict) -> dict:
@@ -57,13 +51,12 @@ def _link_entity(payload: dict) -> dict:
 def _find_action(db: Session, payment_link: dict) -> Action | None:
     reference_id = payment_link.get("reference_id")
     link_id = payment_link.get("id")
-    query = db.query(Action)
     if reference_id:
-        action = query.filter(Action.idempotency_key == reference_id).first()
+        action = db.query(Action).filter(Action.idempotency_key == reference_id).first()
         if action:
             return action
     if link_id:
-        return query.filter(Action.razorpay_reference == link_id).first()
+        return db.query(Action).filter(Action.razorpay_reference == link_id).first()
     return None
 
 
@@ -86,7 +79,6 @@ async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Missing X-Razorpay-Event-Id")
     if not verify_webhook_signature(raw_body, signature, settings.RAZORPAY_WEBHOOK_SECRET):
         raise HTTPException(status_code=401, detail="Invalid Razorpay webhook signature")
-
     if _already_processed(db, event_id):
         return {"ok": True, "duplicate": True}
 
@@ -96,15 +88,32 @@ async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Webhook body is not valid JSON") from exc
 
     event = body.get("event")
-    if event not in _PAYMENT_LINK_EVENTS:
-        db.add(AuditLog(recovery_case_id=None, event_type="webhook_processed", payload={"event_id": event_id, "event": event, "ignored": True}))
+    if event not in _TRACKED_EVENTS:
+        db.add(
+            AuditLog(
+                recovery_case_id=None,
+                event_type="webhook_processed",
+                payload={"event_id": event_id, "event": event, "ignored": True},
+            )
+        )
         db.commit()
         return {"ok": True, "ignored": True}
 
     payment_link = _link_entity(body.get("payload", {}))
     action = _find_action(db, payment_link)
     if action is None:
-        db.add(AuditLog(recovery_case_id=None, event_type="webhook_processed", payload={"event_id": event_id, "event": event, "ignored": True, "reason": "unmatched_payment_link"}))
+        db.add(
+            AuditLog(
+                recovery_case_id=None,
+                event_type="webhook_processed",
+                payload={
+                    "event_id": event_id,
+                    "event": event,
+                    "ignored": True,
+                    "reason": "unmatched_payment_link",
+                },
+            )
+        )
         db.commit()
         return {"ok": True, "ignored": True, "reason": "unmatched_payment_link"}
 
@@ -112,31 +121,35 @@ async def razorpay_webhook(request: Request, db: Session = Depends(get_db)):
     if case is None:
         raise HTTPException(status_code=404, detail="Recovery case for action not found")
 
+    payment = case.payment
     paid_amount = _amount_paid(event, body.get("payload", {}), payment_link)
+    payment_event = body.get("payload", {}).get("payment", {}).get("entity", {}) or {}
+
+    # Payment is terminal. Webhook delivery order is not a business invariant;
+    # cancellation/expiry/partial events must never downgrade verified payment.
     if event == "payment_link.paid":
         action.status = "paid"
         case.status = "resolved"
-        case.payment.status = "paid"
-        case.payment.razorpay_payment_id = (
-            body.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
-        ) or case.payment.razorpay_payment_id
+        payment.status = "paid"
+        payment.razorpay_payment_id = payment_event.get("id") or payment.razorpay_payment_id
         outcome = case.outcome or Outcome(recovery_case_id=case.id)
         outcome.recovered_amount_paise = max(outcome.recovered_amount_paise or 0, paid_amount)
         outcome.success = True
         db.add(outcome)
-    elif event == "payment_link.partially_paid":
-        action.status = "partially_paid"
-        case.status = "partially_recovered"
-        outcome = case.outcome or Outcome(recovery_case_id=case.id)
-        outcome.recovered_amount_paise = max(outcome.recovered_amount_paise or 0, paid_amount)
-        outcome.success = False
-        db.add(outcome)
-    elif event == "payment_link.cancelled":
-        action.status = "cancelled"
-        case.status = "recovery_cancelled"
-    elif event == "payment_link.expired":
-        action.status = "expired"
-        case.status = "recovery_expired"
+    elif case.status != "resolved":
+        if event == "payment_link.partially_paid":
+            action.status = "partially_paid"
+            case.status = "partially_recovered"
+            outcome = case.outcome or Outcome(recovery_case_id=case.id)
+            outcome.recovered_amount_paise = max(outcome.recovered_amount_paise or 0, paid_amount)
+            outcome.success = False
+            db.add(outcome)
+        elif event == "payment_link.cancelled":
+            action.status = "cancelled"
+            case.status = "recovery_cancelled"
+        elif event == "payment_link.expired":
+            action.status = "expired"
+            case.status = "recovery_expired"
 
     db.add(
         AuditLog(
