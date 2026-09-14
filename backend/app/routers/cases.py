@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Action, AgentDecision, AuditLog, Outcome, PolicyCheck, RecoveryCase
+from app.models import Action, AgentDecision, AuditLog, RecoveryCase
 from app.schemas import AuditLedgerEntry, AuditLedgerResponse
 
 router = APIRouter()
@@ -56,17 +56,23 @@ def _latest_decisions(db: Session, case_id: int) -> dict[str, AgentDecision]:
     return latest
 
 
-def _case_summary(case: RecoveryCase) -> dict:
+def _case_summary(case: RecoveryCase, db: Session) -> dict:
     payment = case.payment
     order = payment.order
     customer = order.customer
     outcome = case.outcome
     action = (
-        db_action.status if (db_action := None) else None
+        db.query(Action)
+        .filter(Action.recovery_case_id == case.id)
+        .order_by(Action.created_at.desc(), Action.id.desc())
+        .first()
     )
-    # The latest action is useful to operators, especially after a webhook.
-    latest_action = sorted(case.actions, key=lambda item: (item.created_at, item.id), reverse=True)
-    action_row = latest_action[0] if latest_action else None
+    successful_event = (
+        db.query(AuditLog)
+        .filter(AuditLog.recovery_case_id == case.id, AuditLog.event_type == "execution_succeeded")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
     return {
         "id": case.id,
         "status": case.status,
@@ -78,28 +84,21 @@ def _case_summary(case: RecoveryCase) -> dict:
         "attempt_number": payment.attempt_number,
         "customer_name": customer.name,
         "customer_opted_out": customer.opted_out,
-        "payment_link": _latest_payment_link(case),
+        "payment_link": successful_event.payload.get("short_url") if successful_event else None,
         "outcome_amount_paise": outcome.recovered_amount_paise if outcome else 0,
         "outcome_amount_inr": (outcome.recovered_amount_paise / 100) if outcome else 0,
         "outcome_success": outcome.success if outcome else False,
-        "action_status": action_row.status if action_row else None,
+        "action_status": action.status if action else None,
         "created_at": case.created_at,
         "updated_at": case.updated_at,
     }
-
-
-def _latest_payment_link(case: RecoveryCase) -> str | None:
-    for row in sorted(case.__dict__.get("_sa_instance_state").session.query(AuditLog).filter(AuditLog.recovery_case_id == case.id).order_by(AuditLog.id.desc()).all() if case.__dict__.get("_sa_instance_state") and case.__dict__["_sa_instance_state"].session else [], key=lambda x: x.id):
-        if row.event_type == "execution_succeeded" and row.payload.get("short_url"):
-            return row.payload["short_url"]
-    return None
 
 
 @router.get("/cases")
 def list_cases(limit: int = 25, db: Session = Depends(get_db)):
     safe_limit = min(max(limit, 1), 100)
     cases = db.query(RecoveryCase).order_by(RecoveryCase.updated_at.desc(), RecoveryCase.id.desc()).limit(safe_limit).all()
-    return {"cases": [_case_summary(case) for case in cases]}
+    return {"cases": [_case_summary(case, db) for case in cases]}
 
 
 @router.get("/cases/{case_id}")
@@ -110,20 +109,15 @@ def get_case(case_id: int, db: Session = Depends(get_db)):
 
     decisions = _latest_decisions(db, case.id)
     checks = (
-        db.query(PolicyCheck)
-        .filter(PolicyCheck.recovery_case_id == case.id)
-        .order_by(PolicyCheck.created_at.desc(), PolicyCheck.id.desc())
+        db.query(__import__("app.models", fromlist=["PolicyCheck"]).PolicyCheck)
+        .filter(__import__("app.models", fromlist=["PolicyCheck"]).PolicyCheck.recovery_case_id == case.id)
+        .order_by(__import__("app.models", fromlist=["PolicyCheck"]).PolicyCheck.created_at.desc(), __import__("app.models", fromlist=["PolicyCheck"]).PolicyCheck.id.desc())
         .limit(7)
         .all()
     )
-    action = (
-        db.query(Action)
-        .filter(Action.recovery_case_id == case.id)
-        .order_by(Action.created_at.desc(), Action.id.desc())
-        .first()
-    )
+    action = db.query(Action).filter(Action.recovery_case_id == case.id).order_by(Action.created_at.desc(), Action.id.desc()).first()
     return {
-        "case": _case_summary(case),
+        "case": _case_summary(case, db),
         "root_cause": decisions.get("root_cause_agent").output if decisions.get("root_cause_agent") else None,
         "root_cause_meta": ({
             "confidence": decisions["root_cause_agent"].confidence,
