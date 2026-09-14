@@ -75,7 +75,7 @@ def test_revenue_at_risk_uses_one_failed_attempt_per_order(db_session):
 
 
 def test_retry_later_schedules_before_outbound_call(db_session):
-    case = _case(db_session)
+    case = _case(db_session, case_status="pending_execution")
     _strategy(db_session, case, action="retry_later")
 
     class ExplodingRazorpay:
