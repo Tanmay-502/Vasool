@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Action, AgentDecision, AuditLog, RecoveryCase
+from app.models import Action, AgentDecision, AuditLog, PolicyCheck, RecoveryCase
 from app.schemas import AuditLedgerEntry, AuditLedgerResponse
 
 router = APIRouter()
@@ -36,11 +36,18 @@ def get_recent_cases(limit: int = 20, db: Session = Depends(get_db)):
         .limit(safe_limit)
         .all()
     )
-    return {"entries": [
-        AuditLedgerEntry(id=row.id, case_id=row.recovery_case_id, event_type=row.event_type,
-                         detail=_build_detail(row.event_type, row.payload), created_at=row.created_at)
-        for row in rows
-    ]}
+    return {
+        "entries": [
+            AuditLedgerEntry(
+                id=row.id,
+                case_id=row.recovery_case_id,
+                event_type=row.event_type,
+                detail=_build_detail(row.event_type, row.payload),
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
+    }
 
 
 def _latest_decisions(db: Session, case_id: int) -> dict[str, AgentDecision]:
@@ -97,7 +104,12 @@ def _case_summary(case: RecoveryCase, db: Session) -> dict:
 @router.get("/cases")
 def list_cases(limit: int = 25, db: Session = Depends(get_db)):
     safe_limit = min(max(limit, 1), 100)
-    cases = db.query(RecoveryCase).order_by(RecoveryCase.updated_at.desc(), RecoveryCase.id.desc()).limit(safe_limit).all()
+    cases = (
+        db.query(RecoveryCase)
+        .order_by(RecoveryCase.updated_at.desc(), RecoveryCase.id.desc())
+        .limit(safe_limit)
+        .all()
+    )
     return {"cases": [_case_summary(case, db) for case in cases]}
 
 
@@ -109,13 +121,18 @@ def get_case(case_id: int, db: Session = Depends(get_db)):
 
     decisions = _latest_decisions(db, case.id)
     checks = (
-        db.query(__import__("app.models", fromlist=["PolicyCheck"]).PolicyCheck)
-        .filter(__import__("app.models", fromlist=["PolicyCheck"]).PolicyCheck.recovery_case_id == case.id)
-        .order_by(__import__("app.models", fromlist=["PolicyCheck"]).PolicyCheck.created_at.desc(), __import__("app.models", fromlist=["PolicyCheck"]).PolicyCheck.id.desc())
+        db.query(PolicyCheck)
+        .filter(PolicyCheck.recovery_case_id == case.id)
+        .order_by(PolicyCheck.created_at.desc(), PolicyCheck.id.desc())
         .limit(7)
         .all()
     )
-    action = db.query(Action).filter(Action.recovery_case_id == case.id).order_by(Action.created_at.desc(), Action.id.desc()).first()
+    action = (
+        db.query(Action)
+        .filter(Action.recovery_case_id == case.id)
+        .order_by(Action.created_at.desc(), Action.id.desc())
+        .first()
+    )
     return {
         "case": _case_summary(case, db),
         "root_cause": decisions.get("root_cause_agent").output if decisions.get("root_cause_agent") else None,
