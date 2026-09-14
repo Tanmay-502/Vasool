@@ -44,13 +44,7 @@ def _stable_execution_key(case_id: int, decision_id: int) -> str:
 def _fail(db: Session, case: RecoveryCase, action: Action, reason: str) -> None:
     action.status = "failed"
     case.status = "execution_failed"
-    db.add(
-        AuditLog(
-            recovery_case_id=case.id,
-            event_type="execution_failed",
-            payload={"reason": reason, "idempotency_key": action.idempotency_key},
-        )
-    )
+    db.add(AuditLog(recovery_case_id=case.id, event_type="execution_failed", payload={"reason": reason, "idempotency_key": action.idempotency_key}))
     db.commit()
 
 
@@ -68,14 +62,6 @@ def _payment_link_from_audit(db: Session, case_id: int, idempotency_key: str) ->
 
 
 def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | None = None) -> dict:
-    if case.status not in {"pending_execution", "execution_failed"}:
-        raise CaseNotPendingExecutionError(
-            f"Case {case.id} has status '{case.status}' and cannot execute. "
-            "A policy-approved recovery must be pending execution."
-        )
-    if settings.KILL_SWITCH_ENGAGED:
-        raise AutomationPausedError("Global kill switch is engaged; outbound recovery automation is paused")
-
     strategy_decision = _latest_strategy_decision(db, case.id)
     if strategy_decision is None:
         raise CaseNotPendingExecutionError("Recovery strategy decision is missing")
@@ -85,16 +71,11 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
 
     stable_key = _stable_execution_key(case.id, strategy_decision.id)
     action = db.query(Action).filter(Action.idempotency_key == stable_key).first()
-    if action is None:
-        action = Action(
-            recovery_case_id=case.id,
-            action_type=action_type,
-            status="pending",
-            idempotency_key=stable_key,
-        )
-        db.add(action)
-        db.flush()
-    elif action.status in {"sent", "paid", "partially_paid"}:
+
+    # Idempotency is checked before state gating so a safe client retry after a
+    # successful request is harmless even though the case is now 'executed' or
+    # 'resolved'. Never create a second Payment Link for the same strategy.
+    if action is not None and action.status in {"sent", "paid", "partially_paid"}:
         return {
             "action_type": action.action_type,
             "action_status": action.status,
@@ -104,19 +85,25 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
             "idempotent_replay": True,
         }
 
+    if case.status not in {"pending_execution", "execution_failed"}:
+        raise CaseNotPendingExecutionError(
+            f"Case {case.id} has status '{case.status}' and cannot execute. A policy-approved recovery must be pending execution."
+        )
+    if settings.KILL_SWITCH_ENGAGED:
+        raise AutomationPausedError("Global kill switch is engaged; outbound recovery automation is paused")
+
+    if action is None:
+        action = Action(recovery_case_id=case.id, action_type=action_type, status="pending", idempotency_key=stable_key)
+        db.add(action)
+        db.flush()
+
     razorpay = razorpay if razorpay is not None else RazorpayClient()
     payment = case.payment
     order = payment.order
     customer = order.customer
 
     action.status = "pending"
-    db.add(
-        AuditLog(
-            recovery_case_id=case.id,
-            event_type="execution_started",
-            payload={"action_type": action_type, "idempotency_key": action.idempotency_key},
-        )
-    )
+    db.add(AuditLog(recovery_case_id=case.id, event_type="execution_started", payload={"action_type": action_type, "idempotency_key": action.idempotency_key}))
     db.commit()
 
     if settings.KILL_SWITCH_ENGAGED:
@@ -149,20 +136,13 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
     circuit_breaker.record_success("razorpay")
     action.status = "sent"
     action.razorpay_reference = result["id"]
-    # Keep Payment in failed/recovery-pending state until a signed webhook says
-    # money was actually received; this preserves the meaning of revenue at risk.
+    # Payment remains failed until a signed webhook proves money was received.
     case.status = "executed"
-    db.add(
-        AuditLog(
-            recovery_case_id=case.id,
-            event_type="execution_succeeded",
-            payload={
-                "razorpay_payment_link_id": result["id"],
-                "short_url": result.get("short_url"),
-                "idempotency_key": action.idempotency_key,
-            },
-        )
-    )
+    db.add(AuditLog(
+        recovery_case_id=case.id,
+        event_type="execution_succeeded",
+        payload={"razorpay_payment_link_id": result["id"], "short_url": result.get("short_url"), "idempotency_key": action.idempotency_key},
+    ))
     db.commit()
 
     return {
