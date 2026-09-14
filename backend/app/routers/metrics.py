@@ -11,11 +11,21 @@ router = APIRouter()
 
 
 def _failed_order_scope(db: Session):
-    return (
-        db.query(Payment.order_id.label("order_id"), Payment.failure_reason.label("failure_reason"), Order.amount_paise.label("amount_paise"))
-        .join(Order, Order.id == Payment.order_id)
+    """Return one canonical failed payment row per order."""
+    latest_failed = (
+        db.query(func.max(Payment.id).label("payment_id"))
         .filter(Payment.failure_reason.isnot(None), Payment.status == "failed")
-        .distinct()
+        .group_by(Payment.order_id)
+        .subquery()
+    )
+    return (
+        db.query(
+            Payment.order_id.label("order_id"),
+            Payment.failure_reason.label("failure_reason"),
+            Order.amount_paise.label("amount_paise"),
+        )
+        .join(latest_failed, latest_failed.c.payment_id == Payment.id)
+        .join(Order, Order.id == Payment.order_id)
         .subquery()
     )
 
@@ -26,8 +36,6 @@ def get_metrics(db: Session = Depends(get_db)):
     total_failed_payments = db.query(func.count(Payment.id)).filter(Payment.status == "failed").scalar() or 0
     failure_rate_pct = round(total_failed_payments / total_orders * 100, 2) if total_orders else 0.0
 
-    # Distinct order scope prevents multiple failed Payment rows for one order
-    # from inflating the historical revenue-at-risk denominator.
     failed_orders = _failed_order_scope(db)
     revenue_at_risk_paise = db.query(func.coalesce(func.sum(failed_orders.c.amount_paise), 0)).scalar() or 0
     revenue_recovered_paise = db.query(func.coalesce(func.sum(Outcome.recovered_amount_paise), 0)).scalar() or 0
