@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
-from app.executor import CaseNotPendingExecutionError, CircuitOpenError, execute_case
+from app.executor import AutomationPausedError, CaseNotPendingExecutionError, CircuitOpenError, execute_case
 from app.models import AgentDecision, AuditLog, PolicyCheck, RecoveryCase
 from app.policy_runner import CaseNotAnalyzedError, run_policy_for_case
 from app.rate_limit import RateLimitExceeded
@@ -47,10 +47,7 @@ def review_case(case_id: int, body: ReviewRequest, db: Session = Depends(get_db)
 
     strategy = (
         db.query(AgentDecision)
-        .filter(
-            AgentDecision.recovery_case_id == case.id,
-            AgentDecision.agent_name == "recovery_strategy_agent",
-        )
+        .filter(AgentDecision.recovery_case_id == case.id, AgentDecision.agent_name == "recovery_strategy_agent")
         .order_by(AgentDecision.created_at.desc(), AgentDecision.id.desc())
         .first()
     )
@@ -101,6 +98,8 @@ def execute_case_route(case_id: int, db: Session = Depends(get_db)):
     try:
         result = execute_case(db, case)
     except CaseNotPendingExecutionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except AutomationPausedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except CircuitOpenError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
