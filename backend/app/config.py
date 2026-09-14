@@ -24,9 +24,14 @@ class Settings(BaseSettings):
     MIN_CONFIDENCE_TO_AUTO_EXECUTE: float = 0.75
     KILL_SWITCH_ENGAGED: bool = False
 
+    VASOOL_API_KEY: str = ""
+    AUTO_PROCESS_ENABLED: bool = True
+    AUTO_PROCESS_INTERVAL_SECONDS: int = 60
+    RETRY_LATER_DELAY_MINUTES: int = 30
+
     @property
     def cors_origins(self) -> list[str]:
-        """Return explicit CORS origins, or '*' for public demo defaults."""
+        """Return explicit CORS origins, or '*' for a public development demo."""
         if self.CORS_ORIGINS.strip() == "*":
             return ["*"]
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
