@@ -1,0 +1,52 @@
+name: Holdout Evaluation
+
+on:
+  workflow_dispatch:
+    inputs:
+      min_precision:
+        description: "Minimum precision (0-1)"
+        required: false
+        default: "0.49"
+      min_recall:
+        description: "Minimum recall (0-1)"
+        required: false
+        default: "0.97"
+
+permissions:
+  contents: read
+
+jobs:
+  holdout:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      DATABASE_URL: ${{ secrets.VASOOL_EVAL_DATABASE_URL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      MIN_PRECISION: ${{ inputs.min_precision }}
+      MIN_RECALL: ${{ inputs.min_recall }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Score frozen holdout split
+        working-directory: backend
+        run: python -m scripts.evaluate_holdout | tee holdout-output.txt
+      - name: Enforce precision and recall floor
+        working-directory: backend
+        shell: python
+        run: |
+          import os, re, sys
+          text = open("holdout-output.txt", encoding="utf-8").read()
+          precision = float(re.search(r"Precision:\s*([0-9.]+)%", text).group(1)) / 100
+          recall = float(re.search(r"Recall:\s*([0-9.]+)%", text).group(1)) / 100
+          min_precision = float(os.environ["MIN_PRECISION"])
+          min_recall = float(os.environ["MIN_RECALL"])
+          print(f"precision={precision:.4f} floor={min_precision:.4f}")
+          print(f"recall={recall:.4f} floor={min_recall:.4f}")
+          if precision < min_precision or recall < min_recall:
+              raise SystemExit("Holdout quality gate failed")
