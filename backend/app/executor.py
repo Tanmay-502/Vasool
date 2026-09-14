@@ -1,5 +1,6 @@
 """Idempotent, policy-gated execution against Razorpay Test Mode."""
 import hashlib
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -8,6 +9,8 @@ from app.config import settings
 from app.models import Action, AgentDecision, AuditLog, RecoveryCase
 from app.rate_limit import RateLimitExceeded, check_and_record
 from app.razorpay_client import RazorpayClient, RazorpayError
+from app.state import get_kill_switch
+from app.status import TERMINAL_STATUSES
 
 RAZORPAY_RATE_LIMIT_PER_MINUTE = 15
 RAZORPAY_RATE_LIMIT_KEY = "razorpay_execute"
@@ -25,6 +28,10 @@ class CircuitOpenError(Exception):
 
 class AutomationPausedError(Exception):
     """Raised when the global kill switch blocks outbound automation."""
+
+
+class CaseAlreadyPaidError(Exception):
+    """Raised as a defense-in-depth backstop before any Razorpay call."""
 
 
 def _latest_strategy_decision(db: Session, case_id: int) -> AgentDecision | None:
@@ -62,6 +69,11 @@ def _payment_link_from_audit(db: Session, case_id: int, idempotency_key: str) ->
 
 
 def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | None = None) -> dict:
+    if case.payment.status == "paid":
+        raise CaseAlreadyPaidError(f"Case {case.id} payment is already paid; no recovery call is allowed")
+    if case.status in TERMINAL_STATUSES:
+        raise CaseNotPendingExecutionError(f"Case {case.id} is terminal and cannot execute")
+
     strategy_decision = _latest_strategy_decision(db, case.id)
     if strategy_decision is None:
         raise CaseNotPendingExecutionError("Recovery strategy decision is missing")
@@ -72,9 +84,6 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
     stable_key = _stable_execution_key(case.id, strategy_decision.id)
     action = db.query(Action).filter(Action.idempotency_key == stable_key).first()
 
-    # Idempotency is checked before state gating so a safe client retry after a
-    # successful request is harmless even though the case is now 'executed' or
-    # 'resolved'. Never create a second Payment Link for the same strategy.
     if action is not None and action.status in {"sent", "paid", "partially_paid"}:
         return {
             "action_type": action.action_type,
@@ -85,30 +94,69 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
             "idempotent_replay": True,
         }
 
-    if case.status not in {"pending_execution", "execution_failed"}:
+    if action is not None and action.status == "scheduled" and action.not_before and datetime.utcnow() < action.not_before:
+        return {
+            "action_type": action.action_type,
+            "action_status": action.status,
+            "razorpay_reference": None,
+            "payment_link": None,
+            "case_status": case.status,
+            "not_before": action.not_before.isoformat(),
+            "idempotent_replay": True,
+        }
+
+    if case.status not in {"pending_execution", "execution_failed", "scheduled_retry"}:
         raise CaseNotPendingExecutionError(
             f"Case {case.id} has status '{case.status}' and cannot execute. A policy-approved recovery must be pending execution."
         )
-    if settings.KILL_SWITCH_ENGAGED:
+    if get_kill_switch(db):
         raise AutomationPausedError("Global kill switch is engaged; outbound recovery automation is paused")
+
+    payment = case.payment
+    if payment.status == "paid":
+        raise CaseAlreadyPaidError(f"Case {case.id} payment is already paid; no recovery call is allowed")
 
     if action is None:
         action = Action(recovery_case_id=case.id, action_type=action_type, status="pending", idempotency_key=stable_key)
         db.add(action)
         db.flush()
 
+    if action_type == "retry_later" and action.status == "pending":
+        action.not_before = datetime.utcnow() + timedelta(minutes=max(settings.RETRY_LATER_DELAY_MINUTES, 1))
+        action.status = "scheduled"
+        case.status = "scheduled_retry"
+        db.add(AuditLog(
+            recovery_case_id=case.id,
+            event_type="execution_scheduled",
+            payload={"action_type": action_type, "idempotency_key": action.idempotency_key, "not_before": action.not_before.isoformat()},
+        ))
+        db.commit()
+        return {
+            "action_type": action_type,
+            "action_status": action.status,
+            "razorpay_reference": None,
+            "payment_link": None,
+            "case_status": case.status,
+            "not_before": action.not_before.isoformat(),
+            "idempotent_replay": False,
+        }
+
+    if action.status == "scheduled" and action.not_before and datetime.utcnow() < action.not_before:
+        return {"action_type": action.action_type, "action_status": action.status, "razorpay_reference": None, "payment_link": None, "case_status": case.status, "not_before": action.not_before.isoformat(), "idempotent_replay": True}
+
     razorpay = razorpay if razorpay is not None else RazorpayClient()
-    payment = case.payment
-    order = payment.order
-    customer = order.customer
+    customer = payment.order.customer
 
     action.status = "pending"
     db.add(AuditLog(recovery_case_id=case.id, event_type="execution_started", payload={"action_type": action_type, "idempotency_key": action.idempotency_key}))
     db.commit()
 
-    if settings.KILL_SWITCH_ENGAGED:
+    if get_kill_switch(db):
         _fail(db, case, action, "kill switch engaged before outbound call")
         raise AutomationPausedError("Global kill switch is engaged; outbound recovery automation is paused")
+    if payment.status == "paid":
+        _fail(db, case, action, "payment became paid before outbound call")
+        raise CaseAlreadyPaidError(f"Case {case.id} payment is already paid; no recovery call is allowed")
     if circuit_breaker.is_open("razorpay"):
         _fail(db, case, action, "razorpay circuit open, call skipped")
         raise CircuitOpenError(f"Razorpay circuit open, case {case.id} not attempted")
@@ -121,7 +169,7 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
 
     try:
         result = razorpay.create_payment_link(
-            amount_paise=order.amount_paise,
+            amount_paise=payment.order.amount_paise,
             reference_id=action.idempotency_key,
             customer_name=customer.name,
             customer_email=customer.email,
@@ -136,7 +184,6 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
     circuit_breaker.record_success("razorpay")
     action.status = "sent"
     action.razorpay_reference = result["id"]
-    # Payment remains failed until a signed webhook proves money was received.
     case.status = "executed"
     db.add(AuditLog(
         recovery_case_id=case.id,
