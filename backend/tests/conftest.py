@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import models  # noqa: F401  (registers all tables on Base.metadata)
+from app import models  # noqa: F401
 from app.db import Base, get_db
 from app.main import app
 from app.agents import circuit_breaker
@@ -12,12 +12,7 @@ from app.config import settings
 from app.rate_limit import reset as reset_rate_limit
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
-
-test_engine = create_engine(
-    TEST_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
+test_engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False}, poolclass=StaticPool)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 
 
@@ -45,9 +40,12 @@ def client(db_session):
         yield test_client
     app.dependency_overrides.clear()
 
+
 @pytest.fixture(autouse=True)
 def _reset_module_level_state():
     circuit_breaker.reset()
     reset_rate_limit()
     settings.KILL_SWITCH_ENGAGED = False
-    yield  
+    settings.AUTO_PROCESS_ENABLED = False
+    yield
+    settings.AUTO_PROCESS_ENABLED = True
