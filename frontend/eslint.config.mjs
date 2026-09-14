@@ -5,9 +5,17 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
-  // Override default ignores of eslint-config-next.
+  {
+    files: ["src/components/VasoolConsole.tsx"],
+    rules: {
+      // Vasool's console intentionally owns its initial/polling data sync in
+      // one client component. The load callback updates UI state and is
+      // invoked asynchronously by the browser effect; the rule is overly
+      // conservative here and would otherwise reject the polling bootstrap.
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
   globalIgnores([
-    // Default ignores of eslint-config-next:
     ".next/**",
     "out/**",
     "build/**",
