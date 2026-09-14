@@ -3,7 +3,6 @@ export type FailureReasonBreakdown = {
   count: number;
   amount_at_risk_paise: number;
 };
-
 export type SplitBreakdown = { eval_split: string; count: number };
 export type MetricsResponse = {
   total_orders: number;
@@ -23,9 +22,8 @@ export type MetricsResponse = {
   by_failure_reason: FailureReasonBreakdown[];
   by_split: SplitBreakdown[];
 };
-
 export type KillSwitchStatus = { kill_switch_engaged: boolean };
-export type HealthResponse = { status: string; env: string };
+export type HealthResponse = { status: string; env: string; database?: string };
 export type AuditEntry = { id: number; timestamp: string; caseId: number; eventType: string; detail: string };
 export type AuditLedgerEntry = { id: number; case_id: number; event_type: string; detail: string; created_at: string };
 export type AuditLedgerApiResponse = { entries: AuditLedgerEntry[] };
@@ -92,7 +90,7 @@ async function postJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function getMetrics() { return getJSON<MetricsResponse>("/metrics"); }
 export function getKillSwitchStatus() { return getJSON<KillSwitchStatus>("/admin/kill-switch"); }
-export function getHealth() { return getJSON<HealthResponse>("/health"); }
+export function getHealth() { return getJSON<HealthResponse>("/ready"); }
 export function getCases() { return getJSON<CasesResponse>("/cases"); }
 export function getCase(caseId: number) { return getJSON<CaseDetail>(`/cases/${caseId}`); }
 export function analyzeCase(caseId: number) { return postJSON<Record<string, unknown>>(`/cases/${caseId}/analyze?force=true`); }
@@ -108,20 +106,9 @@ export function setKillSwitch(engaged: boolean) { return postJSON<KillSwitchStat
 export async function getRecentCases(): Promise<AuditEntry[]> {
   const data = await getJSON<AuditLedgerApiResponse>("/cases/recent");
   if (!data) return [];
-  return data.entries.map((entry) => ({
-    id: entry.id,
-    timestamp: entry.created_at,
-    caseId: entry.case_id,
-    eventType: entry.event_type,
-    detail: entry.detail,
-  }));
+  return data.entries.map((entry) => ({ id: entry.id, timestamp: entry.created_at, caseId: entry.case_id, eventType: entry.event_type, detail: entry.detail }));
 }
 
 export function formatINR(amount: number, opts: { compact?: boolean } = {}) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: opts.compact ? 1 : 0,
-    notation: opts.compact ? "compact" : "standard",
-  }).format(amount);
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: opts.compact ? 1 : 0, notation: opts.compact ? "compact" : "standard" }).format(amount);
 }
