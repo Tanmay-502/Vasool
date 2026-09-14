@@ -1,4 +1,4 @@
-"""Fast, read-only revenue and recovery metrics for the command center."""
+"""Read-only revenue and recovery metrics for the command center."""
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -16,16 +16,16 @@ def get_metrics(db: Session = Depends(get_db)):
     total_failed_payments = db.query(func.count(Payment.id)).filter(Payment.status == "failed").scalar() or 0
     failure_rate_pct = round(total_failed_payments / total_orders * 100, 2) if total_orders else 0.0
 
+    # Revenue at risk is a historical recovery denominator: once a failed
+    # payment is recovered, it should not disappear from the denominator or
+    # make a recovery rate artificially jump above 100%.
     revenue_at_risk_paise = (
         db.query(func.coalesce(func.sum(Order.amount_paise), 0))
         .join(Payment, Payment.order_id == Order.id)
-        .filter(Payment.status == "failed")
+        .filter(Payment.failure_reason.isnot(None))
         .scalar()
         or 0
     )
-
-    # Outcome is populated only from trusted Razorpay webhook events. Include
-    # partial recovery amounts as real recovered revenue as well.
     revenue_recovered_paise = db.query(func.coalesce(func.sum(Outcome.recovered_amount_paise), 0)).scalar() or 0
     recovery_rate_pct = round(revenue_recovered_paise / revenue_at_risk_paise * 100, 2) if revenue_at_risk_paise else 0.0
 
@@ -39,13 +39,14 @@ def get_metrics(db: Session = Depends(get_db)):
     partially_recovered_cases = db.query(func.count(RecoveryCase.id)).filter(RecoveryCase.status == "partially_recovered").scalar() or 0
     executed_cases = db.query(func.count(RecoveryCase.id)).filter(RecoveryCase.status == "executed").scalar() or 0
 
+    total_labeled_cases = db.query(func.count(GroundTruth.id)).scalar() or 0
     recoverable_count = db.query(func.count(GroundTruth.id)).filter(GroundTruth.is_recoverable.is_(True)).scalar() or 0
-    recoverable_pct = round(recoverable_count / total_failed_payments * 100, 2) if total_failed_payments else 0.0
+    recoverable_pct = round(recoverable_count / total_labeled_cases * 100, 2) if total_labeled_cases else 0.0
 
     by_reason_rows = (
         db.query(Payment.failure_reason, func.count(Payment.id), func.coalesce(func.sum(Order.amount_paise), 0))
         .join(Order, Order.id == Payment.order_id)
-        .filter(Payment.status == "failed")
+        .filter(Payment.failure_reason.isnot(None))
         .group_by(Payment.failure_reason)
         .order_by(func.count(Payment.id).desc())
         .all()
