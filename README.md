@@ -1,105 +1,84 @@
 # Vasool
 
-> **Explainable, policy-gated revenue recovery for failed payments.**
+> **AI-assisted revenue recovery for failed payments, with deterministic policy, human control, and verified outcomes.**
 
-Vasool finds failed payments that may still be recoverable, diagnoses the
-failure, proposes the safest next action, and places a deterministic safety
-layer between an AI suggestion and any money-touching operation.
+Vasool turns a failed payment into an explainable recovery workflow:
 
-Built for the **Razorpay AI Buildathon 2026 — Track 03: AI Revenue Recovery**.
+**detect → diagnose → recommend → policy-gate → execute → verify → audit**
 
-## Live demo
+Built for the Razorpay AI Buildathon 2026 — Track 03: AI Revenue Recovery.
+
+## Live surfaces
 
 | Surface | Link |
 |---|---|
-| **Vasool dashboard** | [vasool-two.vercel.app](https://vasool-two.vercel.app/) |
+| **Dashboard** | [vasool-two.vercel.app](https://vasool-two.vercel.app/) |
 | **Backend health** | [vasool-ta24.onrender.com/health](https://vasool-ta24.onrender.com/health) |
-| **Backend API docs** | [vasool-ta24.onrender.com/docs](https://vasool-ta24.onrender.com/docs) |
+| **API docs** | [vasool-ta24.onrender.com/docs](https://vasool-ta24.onrender.com/docs) |
 
-Open the dashboard first. The backend may take a few seconds to wake from
-Render's free-tier sleep; refresh once if the first request reports that the
-pipeline is offline.
+The UI is safe to rehearse: analysis and policy evaluation do not touch Razorpay. Test Mode execution is a separate, explicit operator action and can only run after the policy boundary permits it.
 
-## What a judge can see in two minutes
-
-1. Open the dashboard and see revenue at risk, recovery metrics, queue state,
-   failure mix, and an append-only audit ledger.
-2. Select a failed-payment case or click **Analyze demo case**.
-3. Watch Vasool show the root cause, recommended strategy, confidence, and all
-   policy checks in plain language.
-4. Toggle the runtime kill switch and see that new automation is routed to
-   human review.
-
-The dashboard's demo flow is explicitly **non-executing**: it analyzes and
-policy-evaluates a case but never calls Razorpay. Real Test Mode execution is
-available only through the separate, policy-gated execution endpoint.
-
-The dashboard's **Awaiting review** number includes newly detected cases plus
-cases explicitly routed to `HUMAN_REVIEW` or `BLOCKED`. Model quality is
-evaluated separately in shadow mode against the frozen holdout split; the live
-dashboard never reads ground truth to make a decision.
-
-## Why Vasool is safe
-
-AI proposes; deterministic policy decides.
-
-- **Structured outputs:** Gemini and Groq responses are validated against
-  strict Pydantic schemas.
-- **Fallback chain:** Gemini -> Groq -> deterministic rules. Provider failure
-  never becomes a missing decision.
-- **Seven guardrails:** kill switch, risk escalation, action type, opt-out,
-  confidence floor, amount ceiling, and retry ceiling.
-- **Human review:** uncertain, risky, blocked, or non-executable cases never
-  auto-execute.
-- **Idempotency:** every outbound action has a stable key before it reaches
-  Razorpay.
-- **Auditability:** agent reasoning, policy checks, and execution lifecycle
-  are stored separately and can be inspected per case.
-- **Operational controls:** circuit breakers and independent rate limits
-  prevent provider or execution storms.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A[Failed payment] --> B[Root Cause Agent]
-    B --> C[Recovery Strategy Agent]
-    C --> D{Deterministic Policy Engine}
-    D -->|HUMAN_REVIEW / BLOCK| E[Review queue]
-    D -->|EXECUTE| F[Razorpay Test Mode]
-    B --> G[(Agent decisions)]
-    C --> G
-    D --> H[(Policy checks)]
-    F --> I[(Audit log)]
-    E --> I
-```
-
-Each AI tier returns the same schema:
+## The product loop
 
 ```text
-Gemini -> Groq -> rules_fallback
+Failed payment
+      ↓
+Root Cause Agent
+      ↓
+Recovery Strategy Agent
+      ↓
+Deterministic Policy Engine
+   ↙              ↘
+Human review     Test Mode execution
+                    ↓
+              Razorpay Payment Link
+                    ↓
+          Signed webhook verification
+                    ↓
+              Verified Outcome
+                    ↓
+              Recovery metrics
+                    ↓
+                 Audit log
 ```
 
-This keeps the UI and policy layer independent from the provider that
-generated a suggestion.
+The important product boundary is deliberate: **AI proposes; deterministic policy decides; Razorpay webhook evidence decides whether revenue was actually recovered.**
 
-## Repository map
+## What a reviewer can verify quickly
 
-| Path | Purpose |
-|---|---|
-| `backend/app/agents/` | Root-cause and recovery-strategy agents |
-| `backend/app/policy_engine.py` | Pure, deterministic safety decisions |
-| `backend/app/executor.py` | Idempotent Razorpay Test Mode execution |
-| `backend/app/routers/cases.py` | Case queue, detail, and audit endpoints |
-| `backend/scripts/` | Dataset generation, calibration, and shadow evaluation |
-| `backend/tests/` | Unit, integration, fallback, policy, and evaluation tests |
-| `frontend/src/app/page.tsx` | Dashboard composition |
-| `frontend/src/components/CaseExplorer.tsx` | Interactive explainability panel |
-| `ARCHITECTURE.md` | Decision log and design rationale |
-| `FAILURE_SCENARIOS.md` | Honest failure analysis and mitigations |
-| `PROGRESS.md` | Build and validation record |
+1. Open the dashboard and see revenue at risk, verified recovery, recovery rate, review queue, safety posture, and recent audit events.
+2. Open a case to inspect the failure, AI root cause, recommended action, confidence/model metadata, and every policy gate.
+3. For a `HUMAN_REVIEW` case, approve or reject it. Approval never bypasses hard consent/action gates and is paused while the global kill switch is engaged.
+4. For a `pending_execution` case, explicitly create a Razorpay Test Mode Payment Link.
+5. After payment, Razorpay's signed `payment_link.paid` webhook moves the case to `resolved` and writes the verified amount into `Outcome`.
 
-## Run locally
+## Safety architecture
+
+- **Structured AI:** Gemini and Groq responses are validated against strict Pydantic schemas.
+- **Fallback chain:** Gemini → Groq → deterministic rules, so provider failure does not become an undefined decision.
+- **Policy boundary:** seven deterministic gates: kill switch, risk escalation, action type, opt-out, confidence floor, amount ceiling, retry ceiling.
+- **Human control:** uncertain and policy-escalated cases stay in review; hard blocked actions cannot be approved as-is.
+- **Execution idempotency:** the execution reference is deterministic for a case + strategy decision, so client retries do not mint a second logical recovery action.
+- **Razorpay verification:** webhook signatures are checked against the raw request body and duplicate event IDs are ignored.
+- **Monotonic recovery state:** once a payment is verified as paid, later out-of-order expiry/cancellation events cannot downgrade the case.
+- **Auditability:** agent decisions, policy checks, execution lifecycle, webhook processing, and outcome evidence are inspectable per case.
+- **Operational controls:** circuit breakers, independent rate limits, runtime kill switch, and explicit Test Mode confirmation reduce provider and execution risk.
+
+## Evaluation discipline
+
+The evaluation dataset uses a fixed random seed with an 80/20 dev/holdout split. Agent code is prohibited from reading the `ground_truth_labels` table; ground truth is used only after the model decision for scoring.
+
+The evaluation reports precision, recall, false-positive cost, correct escalation rate, and shadow revenue. Live provider quotas are treated as an infrastructure constraint and never presented as model quality.
+
+```powershell
+cd backend
+.venv\Scripts\activate
+python -m scripts.calibrate_confidence --limit 30
+python -m scripts.evaluate_holdout --limit 50
+python -m scripts.shadow_backtest --limit 150
+```
+
+## Local setup
 
 ### Backend
 
@@ -114,73 +93,61 @@ python -m scripts.generate_synthetic_data --count 1500
 python -m uvicorn app.main:app --reload
 ```
 
-The API is available at `http://127.0.0.1:8000`.
+Required environment variables are documented in `backend/.env.example`, including `RAZORPAY_WEBHOOK_SECRET` for signed outcome verification.
 
 ### Frontend
 
-In a second terminal:
-
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Set `NEXT_PUBLIC_API_URL` to the backend URL when the frontend and API are deployed separately.
 
-The frontend uses `NEXT_PUBLIC_API_URL` when set; otherwise it defaults to
-`http://127.0.0.1:8000`.
-
-## Verify before a demo
+## Verification
 
 ```powershell
 cd backend
 .venv\Scripts\activate
-python -m pytest -q
+pytest -q
 
 cd ..\frontend
+npm ci
+npm audit --omit=dev --audit-level=high
+npm run typecheck
 npm run lint
 npm run build
 ```
 
-The test suite covers the fallback chain, schema validation, policy priority,
-kill switch, rate limits, idempotency, API routes, metrics, synthetic-data
-snapshot, and shadow backtest behavior.
+GitHub Actions runs the backend test suite plus frontend production-dependency audit, typecheck, lint, and build on every pull request to `main`.
 
-## Evaluation workflow
+## Repository map
 
-The dataset is generated with a fixed seed and an 80/20 dev/holdout split.
-Agents never read the ground-truth table.
+| Path | Purpose |
+|---|---|
+| `backend/app/agents/` | Root-cause and recovery-strategy agents |
+| `backend/app/policy_engine.py` | Pure deterministic policy decision logic |
+| `backend/app/policy_runner.py` | Persist policy decisions and case state |
+| `backend/app/executor.py` | Idempotent Razorpay Test Mode execution |
+| `backend/app/routers/webhooks.py` | Signed Razorpay outcome ingestion |
+| `backend/app/routers/policy.py` | Policy evaluation, human review, execution routes |
+| `backend/app/routers/cases.py` | Case queue, explainability, and outcome surfaces |
+| `backend/tests/` | Policy, agent fallback, execution, webhook, and API coverage |
+| `frontend/src/components/VasoolConsole.tsx` | Competition-facing recovery command center |
+| `ARCHITECTURE.md` | Design decisions and system rationale |
+| `FAILURE_SCENARIOS.md` | Failure lab and mitigations |
+| `PROGRESS.md` | Build and validation record |
+| `PRD.md` | Product requirements and success metrics |
 
-```powershell
-cd backend
-.venv\Scripts\activate
-python -m scripts.calibrate_confidence --limit 30
-python -m scripts.evaluate_holdout --limit 50
-python -m scripts.shadow_backtest --limit 150
-```
+## Safety notes
 
-The holdout script reports precision, recall, false-positive cost, correct
-escalation rate, and shadow revenue that would be recovered. Free-tier model
-quotas can force cases onto the deterministic fallback; this is documented in
-[`FAILURE_SCENARIOS.md`](./FAILURE_SCENARIOS.md), not hidden.
+Use Razorpay **Test Mode** credentials only. Configure the Razorpay webhook to point at `/webhooks/razorpay` and use the same secret in `RAZORPAY_WEBHOOK_SECRET`.
 
-## Important safety notes
+Never treat a Payment Link creation response as recovered revenue. Vasool credits recovery only from a verified webhook outcome.
 
-- Use Razorpay **Test Mode** credentials only.
-- Do not run `/cases/{id}/execute` repeatedly against the full synthetic
-  dataset; Test Mode Payment Links have a finite quota.
-- The dashboard demo does not execute payments.
-- Keep `backend/.env` and `frontend/.env.local` local; both are git-ignored.
-- Rotate any credential that has been exposed outside the local environment.
-
-## Further reading
-
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — design decisions and trade-offs
-- [`FAILURE_SCENARIOS.md`](./FAILURE_SCENARIOS.md) — what failed and how it is contained
-- [`PROGRESS.md`](./PROGRESS.md) — implementation and validation history
-- [`PRD.md`](./PRD.md) — original problem and success metrics
+Keep `.env` and `.env.local` outside source control and rotate any credential that has been exposed.
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE).
+MIT — see `LICENSE`.
