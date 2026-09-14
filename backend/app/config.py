@@ -6,10 +6,10 @@ class Settings(BaseSettings):
 
     ENV: str = "development"
     DATABASE_URL: str = "postgresql+psycopg://user:password@localhost:5432/vasool"
+    CORS_ORIGINS: str = "*"
 
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
-    # Razorpay Dashboard webhook secret used only to verify webhook payloads.
     RAZORPAY_WEBHOOK_SECRET: str = ""
 
     GEMINI_API_KEY: str = ""
@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     MAX_RETRY_ATTEMPTS: int = 3
     MIN_CONFIDENCE_TO_AUTO_EXECUTE: float = 0.75
     KILL_SWITCH_ENGAGED: bool = False
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Return explicit CORS origins, or '*' for public demo defaults."""
+        if self.CORS_ORIGINS.strip() == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
 
 settings = Settings()
