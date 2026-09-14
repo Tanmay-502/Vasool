@@ -7,7 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import admin, agents, cases, health, metrics, policy, webhooks
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +31,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
