@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -61,21 +61,20 @@ def test_reanalysis_route_blocks_terminal_case(client, db_session):
     assert "blocked" in response.json()["detail"]
 
 
-def test_revenue_at_risk_uses_distinct_orders(db_session):
+def test_revenue_at_risk_uses_one_failed_attempt_per_order(db_session):
     case = _case(db_session, amount=12500)
     order = case.payment.order
-    db_session.add(
-        Payment(order=order, method="card", status="failed", failure_reason="issuer_decline", attempt_number=2)
-    )
+    db_session.add(Payment(order=order, method="card", status="failed", failure_reason="issuer_decline", attempt_number=2))
     db_session.commit()
 
     metrics = get_metrics(db_session)
     assert metrics.revenue_at_risk_paise == 12500
-    assert len(metrics.by_failure_reason) == 2
-    assert sum(row.amount_at_risk_paise for row in metrics.by_failure_reason) == 25000
+    assert sum(row.amount_at_risk_paise for row in metrics.by_failure_reason) == 12500
+    assert metrics.by_failure_reason[0].reason == "issuer_decline"
+    assert metrics.by_failure_reason[0].count == 1
 
 
-def test_retry_later_schedules_before_outbound_call(db_session, monkeypatch):
+def test_retry_later_schedules_before_outbound_call(db_session):
     case = _case(db_session)
     _strategy(db_session, case, action="retry_later")
 
