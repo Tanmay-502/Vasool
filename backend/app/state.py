@@ -9,9 +9,8 @@ _KILL_SWITCH_KEY = "kill_switch_engaged"
 
 
 def get_kill_switch(db: Session) -> bool:
-    # An explicit environment setting remains an emergency floor: the database
-    # can pause/resume automation at runtime, but cannot override a deployment
-    # that was intentionally started with the kill switch engaged.
+    # The environment flag is an immutable deployment-level floor. Runtime
+    # pause/resume is persisted separately in the database and cannot clear it.
     if settings.KILL_SWITCH_ENGAGED:
         return True
     row = db.query(RuntimeSetting).filter(RuntimeSetting.key == _KILL_SWITCH_KEY).first()
@@ -31,5 +30,4 @@ def set_kill_switch(db: Session, engaged: bool) -> bool:
     else:
         row.value = {"enabled": engaged}
     db.commit()
-    settings.KILL_SWITCH_ENGAGED = engaged
-    return engaged
+    return engaged or bool(settings.KILL_SWITCH_ENGAGED)
