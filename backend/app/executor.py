@@ -30,10 +30,7 @@ class AutomationPausedError(Exception):
 def _latest_strategy_decision(db: Session, case_id: int) -> AgentDecision | None:
     return (
         db.query(AgentDecision)
-        .filter(
-            AgentDecision.recovery_case_id == case_id,
-            AgentDecision.agent_name == "recovery_strategy_agent",
-        )
+        .filter(AgentDecision.recovery_case_id == case_id, AgentDecision.agent_name == "recovery_strategy_agent")
         .order_by(AgentDecision.created_at.desc(), AgentDecision.id.desc())
         .first()
     )
@@ -57,6 +54,19 @@ def _fail(db: Session, case: RecoveryCase, action: Action, reason: str) -> None:
     db.commit()
 
 
+def _payment_link_from_audit(db: Session, case_id: int, idempotency_key: str) -> str | None:
+    rows = (
+        db.query(AuditLog)
+        .filter(AuditLog.recovery_case_id == case_id, AuditLog.event_type == "execution_succeeded")
+        .order_by(AuditLog.id.desc())
+        .all()
+    )
+    for entry in rows:
+        if entry.payload.get("idempotency_key") == idempotency_key:
+            return entry.payload.get("short_url")
+    return None
+
+
 def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | None = None) -> dict:
     if case.status not in {"pending_execution", "execution_failed"}:
         raise CaseNotPendingExecutionError(
@@ -75,19 +85,7 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
 
     stable_key = _stable_execution_key(case.id, strategy_decision.id)
     action = db.query(Action).filter(Action.idempotency_key == stable_key).first()
-    if action is not None:
-        # A prior attempt already reached a terminal outbound state. Never
-        # create a second Payment Link merely because the client retried.
-        if action.status in {"sent", "paid", "partially_paid"}:
-            return {
-                "action_type": action.action_type,
-                "action_status": action.status,
-                "razorpay_reference": action.razorpay_reference,
-                "payment_link": _payment_link_from_audit(db, case.id, action.idempotency_key),
-                "case_status": case.status,
-                "idempotent_replay": True,
-            }
-    else:
+    if action is None:
         action = Action(
             recovery_case_id=case.id,
             action_type=action_type,
@@ -96,14 +94,22 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
         )
         db.add(action)
         db.flush()
+    elif action.status in {"sent", "paid", "partially_paid"}:
+        return {
+            "action_type": action.action_type,
+            "action_status": action.status,
+            "razorpay_reference": action.razorpay_reference,
+            "payment_link": _payment_link_from_audit(db, case.id, action.idempotency_key),
+            "case_status": case.status,
+            "idempotent_replay": True,
+        }
 
     razorpay = razorpay if razorpay is not None else RazorpayClient()
     payment = case.payment
     order = payment.order
     customer = order.customer
 
-    if action.status != "pending":
-        action.status = "pending"
+    action.status = "pending"
     db.add(
         AuditLog(
             recovery_case_id=case.id,
@@ -143,6 +149,8 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
     circuit_breaker.record_success("razorpay")
     action.status = "sent"
     action.razorpay_reference = result["id"]
+    # Keep Payment in failed/recovery-pending state until a signed webhook says
+    # money was actually received; this preserves the meaning of revenue at risk.
     case.status = "executed"
     db.add(
         AuditLog(
@@ -165,16 +173,3 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
         "case_status": case.status,
         "idempotent_replay": False,
     }
-
-
-def _payment_link_from_audit(db: Session, case_id: int, idempotency_key: str) -> str | None:
-    row = (
-        db.query(AuditLog)
-        .filter(AuditLog.recovery_case_id == case_id, AuditLog.event_type == "execution_succeeded")
-        .order_by(AuditLog.id.desc())
-        .all()
-    )
-    for entry in row:
-        if entry.payload.get("idempotency_key") == idempotency_key:
-            return entry.payload.get("short_url")
-    return None
