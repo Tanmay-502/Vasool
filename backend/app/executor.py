@@ -69,10 +69,9 @@ def _payment_link_from_audit(db: Session, case_id: int, idempotency_key: str) ->
 
 
 def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | None = None) -> dict:
+    # Payment state is an absolute backstop: once paid, there is no safe replay.
     if case.payment.status == "paid":
         raise CaseAlreadyPaidError(f"Case {case.id} payment is already paid; no recovery call is allowed")
-    if case.status in TERMINAL_STATUSES:
-        raise CaseNotPendingExecutionError(f"Case {case.id} is terminal and cannot execute")
 
     strategy_decision = _latest_strategy_decision(db, case.id)
     if strategy_decision is None:
@@ -84,6 +83,8 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
     stable_key = _stable_execution_key(case.id, strategy_decision.id)
     action = db.query(Action).filter(Action.idempotency_key == stable_key).first()
 
+    # Safe replay path comes before the terminal status guard. We may return an
+    # already-sent action, but we never create a new provider call.
     if action is not None and action.status in {"sent", "paid", "partially_paid"}:
         return {
             "action_type": action.action_type,
@@ -105,6 +106,8 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
             "idempotent_replay": True,
         }
 
+    if case.status in TERMINAL_STATUSES:
+        raise CaseNotPendingExecutionError(f"Case {case.id} is terminal and cannot execute")
     if case.status not in {"pending_execution", "execution_failed", "scheduled_retry"}:
         raise CaseNotPendingExecutionError(
             f"Case {case.id} has status '{case.status}' and cannot execute. A policy-approved recovery must be pending execution."
@@ -140,9 +143,6 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
             "not_before": action.not_before.isoformat(),
             "idempotent_replay": False,
         }
-
-    if action.status == "scheduled" and action.not_before and datetime.utcnow() < action.not_before:
-        return {"action_type": action.action_type, "action_status": action.status, "razorpay_reference": None, "payment_link": None, "case_status": case.status, "not_before": action.not_before.isoformat(), "idempotent_replay": True}
 
     razorpay = razorpay if razorpay is not None else RazorpayClient()
     customer = payment.order.customer
