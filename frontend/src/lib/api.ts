@@ -1,16 +1,10 @@
-import type { AuditEntry } from "@/components/AuditLedger";
-
 export type FailureReasonBreakdown = {
   reason: string;
   count: number;
   amount_at_risk_paise: number;
 };
 
-export type SplitBreakdown = {
-  eval_split: string;
-  count: number;
-};
-
+export type SplitBreakdown = { eval_split: string; count: number };
 export type MetricsResponse = {
   total_orders: number;
   total_failed_payments: number;
@@ -27,27 +21,11 @@ export type MetricsResponse = {
   by_split: SplitBreakdown[];
 };
 
-export type KillSwitchStatus = {
-  kill_switch_engaged: boolean;
-};
-
-export type HealthResponse = {
-  status: string;
-  env: string;
-};
-
-export type AuditLedgerEntry = {
-  id: number;
-  case_id: number;
-  event_type: string;
-  detail: string;
-  created_at: string;
-};
-
-export type AuditLedgerApiResponse = {
-  entries: AuditLedgerEntry[];
-};
-
+export type KillSwitchStatus = { kill_switch_engaged: boolean };
+export type HealthResponse = { status: string; env: string };
+export type AuditEntry = { id: number; timestamp: string; caseId: number; eventType: string; detail: string };
+export type AuditLedgerEntry = { id: number; case_id: number; event_type: string; detail: string; created_at: string };
+export type AuditLedgerApiResponse = { entries: AuditLedgerEntry[] };
 export type CaseSummary = {
   id: number;
   status: string;
@@ -62,7 +40,6 @@ export type CaseSummary = {
   created_at: string;
   updated_at: string;
 };
-
 export type PolicyCheck = { check_name: string; passed: boolean; reason: string };
 export type CaseDetail = {
   case: CaseSummary;
@@ -72,7 +49,6 @@ export type CaseDetail = {
   strategy_meta: { confidence: number; model_used: string; latency_ms: number | null } | null;
   policy_checks: PolicyCheck[];
 };
-
 export type CasesResponse = { cases: CaseSummary[] };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -88,70 +64,30 @@ async function getJSON<T>(path: string): Promise<T | null> {
 }
 
 async function postJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
+  const res = await fetch(`${API_URL}${path}`, { method: "POST", headers: { "Content-Type": "application/json" } });
   const body = (await res.json().catch(() => null)) as { detail?: string } | T | null;
   if (!res.ok) {
-    throw new Error(
-      body && typeof body === "object" && "detail" in body
-        ? body.detail ?? `Request failed (${res.status})`
-        : `Request failed (${res.status})`,
-    );
+    throw new Error(body && typeof body === "object" && "detail" in body ? body.detail ?? `Request failed (${res.status})` : `Request failed (${res.status})`);
   }
   return body as T;
 }
 
-export function getMetrics() {
-  return getJSON<MetricsResponse>("/metrics");
-}
-
-export function getKillSwitchStatus() {
-  return getJSON<KillSwitchStatus>("/admin/kill-switch");
-}
-
-export function getHealth() {
-  return getJSON<HealthResponse>("/health");
-}
-
-export function getCases() {
-  return getJSON<CasesResponse>("/cases");
-}
-
-export function getCase(caseId: number) {
-  return getJSON<CaseDetail>(`/cases/${caseId}`);
-}
-
-export function analyzeCase(caseId: number) {
-  return postJSON<Record<string, unknown>>(`/cases/${caseId}/analyze?force=true`);
-}
-
-export function evaluatePolicy(caseId: number) {
-  return postJSON<Record<string, unknown>>(`/cases/${caseId}/evaluate-policy`);
-}
-
-export function setKillSwitch(engaged: boolean) {
-  return postJSON<KillSwitchStatus>(`/admin/kill-switch/${engaged ? "engage" : "disengage"}`);
-}
+export function getMetrics() { return getJSON<MetricsResponse>("/metrics"); }
+export function getKillSwitchStatus() { return getJSON<KillSwitchStatus>("/admin/kill-switch"); }
+export function getHealth() { return getJSON<HealthResponse>("/health"); }
+export function getCases() { return getJSON<CasesResponse>("/cases"); }
+export function getCase(caseId: number) { return getJSON<CaseDetail>(`/cases/${caseId}`); }
+export function analyzeCase(caseId: number) { return postJSON<Record<string, unknown>>(`/cases/${caseId}/analyze?force=true`); }
+export function evaluatePolicy(caseId: number) { return postJSON<Record<string, unknown>>(`/cases/${caseId}/evaluate-policy`); }
+export function executeCase(caseId: number) { return postJSON<Record<string, unknown>>(`/cases/${caseId}/execute`); }
+export function setKillSwitch(engaged: boolean) { return postJSON<KillSwitchStatus>(`/admin/kill-switch/${engaged ? "engage" : "disengage"}`); }
 
 export async function getRecentCases(): Promise<AuditEntry[]> {
   const data = await getJSON<AuditLedgerApiResponse>("/cases/recent");
   if (!data) return [];
-  return data.entries.map((entry) => ({
-    id: entry.id,
-    timestamp: entry.created_at,
-    caseId: entry.case_id,
-    eventType: entry.event_type,
-    detail: entry.detail,
-  }));
+  return data.entries.map((entry) => ({ id: entry.id, timestamp: entry.created_at, caseId: entry.case_id, eventType: entry.event_type, detail: entry.detail }));
 }
 
 export function formatINR(amount: number, opts: { compact?: boolean } = {}) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: opts.compact ? 1 : 0,
-    notation: opts.compact ? "compact" : "standard",
-  }).format(amount);
+  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: opts.compact ? 1 : 0, notation: opts.compact ? "compact" : "standard" }).format(amount);
 }
