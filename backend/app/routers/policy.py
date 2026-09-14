@@ -13,6 +13,7 @@ from app.rate_limit import RateLimitExceeded
 from app.razorpay_client import RazorpayError
 
 router = APIRouter()
+_AUTO_EXECUTABLE_ACTIONS = {"retry_now", "retry_later", "send_payment_link"}
 
 
 class ReviewRequest(BaseModel):
@@ -34,12 +35,7 @@ def evaluate_case_policy(case_id: int, db: Session = Depends(get_db)):
 
 @router.post("/cases/{case_id}/review")
 def review_case(case_id: int, body: ReviewRequest, db: Session = Depends(get_db)):
-    """Record a human decision without ever bypassing a hard BLOCK.
-
-    HUMAN_REVIEW is deliberately an operator gate: approval moves the case to
-    pending_execution, while rejection is terminal. A BLOCKED case can never
-    be approved as-is, and an engaged global kill switch freezes approval.
-    """
+    """Record a human decision without bypassing hard safety gates."""
     case = db.get(RecoveryCase, case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="Recovery case not found")
@@ -49,6 +45,15 @@ def review_case(case_id: int, body: ReviewRequest, db: Session = Depends(get_db)
     if body.decision == "approve" and settings.KILL_SWITCH_ENGAGED:
         raise HTTPException(status_code=409, detail="Kill switch is engaged; approval is paused")
 
+    strategy = (
+        db.query(AgentDecision)
+        .filter(
+            AgentDecision.recovery_case_id == case.id,
+            AgentDecision.agent_name == "recovery_strategy_agent",
+        )
+        .order_by(AgentDecision.created_at.desc(), AgentDecision.id.desc())
+        .first()
+    )
     latest_checks = (
         db.query(PolicyCheck)
         .filter(PolicyCheck.recovery_case_id == case.id)
@@ -56,15 +61,32 @@ def review_case(case_id: int, body: ReviewRequest, db: Session = Depends(get_db)
         .limit(7)
         .all()
     )
-    if body.decision == "approve" and any(c.check_name == "opt_out" and not c.passed for c in latest_checks):
-        raise HTTPException(status_code=409, detail="Consent policy blocked this action")
+
+    if body.decision == "approve":
+        if strategy is None:
+            raise HTTPException(status_code=409, detail="No recovery strategy exists to approve")
+        action = strategy.output.get("action")
+        if action not in _AUTO_EXECUTABLE_ACTIONS:
+            raise HTTPException(status_code=409, detail=f"'{action}' is not an executable recovery action")
+        hard_failures = {
+            check.check_name
+            for check in latest_checks
+            if not check.passed and check.check_name in {"opt_out", "action_type"}
+        }
+        if hard_failures:
+            raise HTTPException(status_code=409, detail="One or more hard policy gates still block this action")
 
     case.status = "pending_execution" if body.decision == "approve" else "rejected"
     db.add(
         AuditLog(
             recovery_case_id=case.id,
             event_type="human_review_decision",
-            payload={"decision": body.decision, "note": body.note or "", "kill_switch_engaged": settings.KILL_SWITCH_ENGAGED},
+            payload={
+                "decision": body.decision,
+                "note": body.note or "",
+                "approved_action": strategy.output.get("action") if strategy else None,
+                "kill_switch_engaged": settings.KILL_SWITCH_ENGAGED,
+            },
         )
     )
     db.commit()
