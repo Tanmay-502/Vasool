@@ -11,7 +11,20 @@ export type PolicyCheck = { check_name: string; passed: boolean; reason: string 
 export type CaseDetail = { case: CaseSummary; root_cause: { root_cause_category?: string; is_transient?: boolean; reasoning?: string; confidence?: number } | null; root_cause_meta: { confidence: number; model_used: string; latency_ms: number | null } | null; strategy: { action?: string; reasoning?: string; confidence?: number } | null; strategy_meta: { confidence: number; model_used: string; latency_ms: number | null } | null; policy_checks: PolicyCheck[]; action: { status: string; payment_link_id: string | null } | null; outcome: { recovered_amount_paise: number; success: boolean } | null };
 export type CasesResponse = { cases: CaseSummary[] };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+export function resolveApiUrl(environment: string, configuredValue?: string) {
+  const configuredApiUrl = configuredValue?.trim().replace(/\/+$/, "");
+  const configuredLocalhost = configuredApiUrl
+    ? /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(configuredApiUrl)
+    : false;
+  if (environment === "production") {
+    return configuredApiUrl && !configuredLocalhost
+      ? configuredApiUrl
+      : "https://vasool-ta24.onrender.com";
+  }
+  return configuredApiUrl || "http://127.0.0.1:8000";
+}
+
+const API_URL = resolveApiUrl(process.env.NODE_ENV, process.env.NEXT_PUBLIC_API_URL);
 const API_KEY = process.env.NEXT_PUBLIC_VASOOL_API_KEY ?? "";
 
 export class ApiRequestError extends Error {
