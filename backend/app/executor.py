@@ -68,7 +68,12 @@ def _payment_link_from_audit(db: Session, case_id: int, idempotency_key: str) ->
     return None
 
 
-def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | None = None) -> dict:
+def execute_case(
+    db: Session,
+    case: RecoveryCase,
+    razorpay: RazorpayClient | None = None,
+    rate_limit_key: str = RAZORPAY_RATE_LIMIT_KEY,
+) -> dict:
     # Payment state is an absolute backstop: once paid, there is no safe replay.
     if case.payment.status == "paid":
         raise CaseAlreadyPaidError(f"Case {case.id} payment is already paid; no recovery call is allowed")
@@ -162,7 +167,7 @@ def execute_case(db: Session, case: RecoveryCase, razorpay: RazorpayClient | Non
         raise CircuitOpenError(f"Razorpay circuit open, case {case.id} not attempted")
 
     try:
-        check_and_record(RAZORPAY_RATE_LIMIT_PER_MINUTE, key=RAZORPAY_RATE_LIMIT_KEY)
+        check_and_record(RAZORPAY_RATE_LIMIT_PER_MINUTE, key=rate_limit_key)
     except RateLimitExceeded:
         _fail(db, case, action, "rate limit exceeded")
         raise
