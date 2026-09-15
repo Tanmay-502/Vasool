@@ -78,6 +78,65 @@ button:disabled { cursor: not-allowed; }
   animation: vasool-spin 18s linear infinite;
 }
 
+.vasool-app-shell {
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+  overflow: clip;
+}
+
+.vasool-app-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 82% 9%, rgba(80, 104, 224, 0.11), transparent 24%),
+    radial-gradient(circle at 8% 86%, rgba(21, 154, 104, 0.08), transparent 20%);
+}
+
+.vasool-app-orb {
+  position: absolute;
+  z-index: 0;
+  width: 28rem;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.34;
+  filter: blur(1px);
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255,255,255,.88) 0 3%, transparent 11%),
+    radial-gradient(circle at 47% 42%, rgba(116,142,255,.30) 0 32%, rgba(65,84,168,.08) 52%, transparent 72%);
+  box-shadow:
+    inset -30px -36px 64px rgba(16,22,43,.08),
+    inset 18px 14px 40px rgba(255,255,255,.72),
+    0 40px 90px rgba(50,69,155,.12);
+}
+
+.vasool-app-orb::after {
+  content: "";
+  position: absolute;
+  inset: 14%;
+  border: 1px solid rgba(86, 110, 220, 0.15);
+  border-radius: 50%;
+  box-shadow: 0 0 0 30px rgba(86,110,220,.025), 0 0 0 60px rgba(86,110,220,.018);
+}
+
+.vasool-app-orb-one {
+  top: 3rem;
+  right: -12rem;
+  animation: vasool-float 9s ease-in-out infinite;
+}
+
+.vasool-app-orb-two {
+  bottom: 8rem;
+  left: -18rem;
+  width: 24rem;
+  opacity: 0.22;
+  animation: vasool-float 12s ease-in-out infinite reverse;
+}
+
 @keyframes vasool-float {
   0%, 100% { transform: translateY(0) rotate(-2deg); }
   50% { transform: translateY(-8px) rotate(2deg); }
@@ -90,4 +149,8 @@ button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+  .vasool-app-orb-one,
+  .vasool-app-orb-two {
+    animation: none;
+  }
 }
