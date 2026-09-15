@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db import get_db
-from app.models import AgentDecision, AuditLog, Order, Payment, PolicyCheck, RecoveryCase
+from app.models import Action, AgentDecision, AuditLog, Order, Payment, PolicyCheck, RecoveryCase
 from app.schemas import AuditLedgerEntry, AuditLedgerResponse
 
 router = APIRouter()
@@ -150,7 +150,22 @@ def get_case(case_id: int, db: Session = Depends(get_db)):
         .limit(7)
         .all()
     )
-    action = db.query(__import__("app.models", fromlist=["Action"]).Action).filter(__import__("app.models", fromlist=["Action"]).Action.recovery_case_id == case.id).order_by(__import__("app.models", fromlist=["Action"]).Action.created_at.desc(), __import__("app.models", fromlist=["Action"]).Action.id.desc()).first()
+    action = (
+        db.query(Action)
+        .filter(Action.recovery_case_id == case.id)
+        .order_by(Action.created_at.desc(), Action.id.desc())
+        .first()
+    )
+    successful_event = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.recovery_case_id == case.id,
+            AuditLog.event_type == "execution_succeeded",
+        )
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    case._successful_execution_event = successful_event
     return {
         "case": _case_summary(case, db),
         "root_cause": decisions.get("root_cause_agent").output if decisions.get("root_cause_agent") else None,
