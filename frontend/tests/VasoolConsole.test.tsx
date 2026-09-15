@@ -126,13 +126,13 @@ describe("VasoolConsole", () => {
     state.killSwitch = true;
     render(<VasoolConsole />);
     fireEvent.click(await screen.findByText("CASE #1"));
-    expect((await screen.findByRole("button", { name: "Approve" })).disabled).toBe(true);
+    expect((await screen.findByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(true);
 
     cleanup();
     state.status = "pending_execution";
     render(<VasoolConsole />);
     fireEvent.click(await screen.findByText("CASE #1"));
-    expect((await screen.findByRole("button", { name: "Execute Test Mode" })).disabled).toBe(true);
+    expect((await screen.findByRole("button", { name: "Execute Test Mode" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("terminal status hides all mutation buttons", async () => {
