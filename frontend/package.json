@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run && node --test tests/recovery-actions.test.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.34.0",
