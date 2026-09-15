@@ -1,12 +1,15 @@
 """Case queue, explainability, review, and recovery-outcome surfaces."""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db import get_db
-from app.models import Action, AgentDecision, AuditLog, PolicyCheck, RecoveryCase
+from app.models import Action, AgentDecision, AuditLog, Order, Payment, PolicyCheck, RecoveryCase
 from app.schemas import AuditLedgerEntry, AuditLedgerResponse
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _build_detail(event_type: str, payload: dict) -> str:
@@ -58,16 +61,18 @@ def _latest_decisions(db: Session, case_id: int) -> dict[str, AgentDecision]:
 
 def _case_summary(case: RecoveryCase, db: Session) -> dict:
     payment = case.payment
+    if payment is None:
+        raise ValueError(f"Recovery case {case.id} has no payment relationship")
     order = payment.order
+    if order is None:
+        raise ValueError(f"Recovery case {case.id} has no order relationship")
     customer = order.customer
+    if customer is None:
+        raise ValueError(f"Recovery case {case.id} has no customer relationship")
     outcome = case.outcome
-    action = db.query(Action).filter(Action.recovery_case_id == case.id).order_by(Action.created_at.desc(), Action.id.desc()).first()
-    successful_event = (
-        db.query(AuditLog)
-        .filter(AuditLog.recovery_case_id == case.id, AuditLog.event_type == "execution_succeeded")
-        .order_by(AuditLog.id.desc())
-        .first()
-    )
+    action = max(case.actions or [], key=lambda row: (row.created_at, row.id), default=None)
+    successful_event = getattr(case, "_successful_execution_event", None)
+    successful_payload = successful_event.payload if successful_event and isinstance(successful_event.payload, dict) else {}
     return {
         "id": case.id,
         "status": case.status,
@@ -79,7 +84,7 @@ def _case_summary(case: RecoveryCase, db: Session) -> dict:
         "attempt_number": payment.attempt_number,
         "customer_name": customer.name,
         "customer_opted_out": customer.opted_out,
-        "payment_link": successful_event.payload.get("short_url") if successful_event else None,
+        "payment_link": successful_payload.get("short_url"),
         "outcome_amount_paise": outcome.recovered_amount_paise if outcome else 0,
         "outcome_amount_inr": (outcome.recovered_amount_paise / 100) if outcome else 0,
         "outcome_success": outcome.success if outcome else False,
@@ -92,8 +97,43 @@ def _case_summary(case: RecoveryCase, db: Session) -> dict:
 @router.get("/cases")
 def list_cases(limit: int = 25, db: Session = Depends(get_db)):
     safe_limit = min(max(limit, 1), 100)
-    cases = db.query(RecoveryCase).order_by(RecoveryCase.updated_at.desc(), RecoveryCase.id.desc()).limit(safe_limit).all()
-    return {"cases": [_case_summary(case, db) for case in cases]}
+    cases = (
+        db.query(RecoveryCase)
+        .options(
+            joinedload(RecoveryCase.payment).joinedload(Payment.order).joinedload(Order.customer),
+            selectinload(RecoveryCase.actions),
+            joinedload(RecoveryCase.outcome),
+        )
+        .order_by(RecoveryCase.updated_at.desc(), RecoveryCase.id.desc())
+        .limit(safe_limit)
+        .all()
+    )
+
+    case_ids = [case.id for case in cases]
+    events = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.recovery_case_id.in_(case_ids),
+            AuditLog.event_type == "execution_succeeded",
+        )
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .all()
+        if case_ids
+        else []
+    )
+    latest_success_by_case = {}
+    for event in events:
+        latest_success_by_case.setdefault(event.recovery_case_id, event)
+
+    summaries = []
+    for case in cases:
+        case._successful_execution_event = latest_success_by_case.get(case.id)
+        try:
+            summaries.append(_case_summary(case, db))
+        except (AttributeError, TypeError, ValueError) as exc:
+            logger.exception("Skipping malformed recovery case id=%s: %s", case.id, exc)
+
+    return {"cases": summaries}
 
 
 @router.get("/cases/{case_id}")
@@ -110,7 +150,22 @@ def get_case(case_id: int, db: Session = Depends(get_db)):
         .limit(7)
         .all()
     )
-    action = db.query(Action).filter(Action.recovery_case_id == case.id).order_by(Action.created_at.desc(), Action.id.desc()).first()
+    action = (
+        db.query(Action)
+        .filter(Action.recovery_case_id == case.id)
+        .order_by(Action.created_at.desc(), Action.id.desc())
+        .first()
+    )
+    successful_event = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.recovery_case_id == case.id,
+            AuditLog.event_type == "execution_succeeded",
+        )
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    case._successful_execution_event = successful_event
     return {
         "case": _case_summary(case, db),
         "root_cause": decisions.get("root_cause_agent").output if decisions.get("root_cause_agent") else None,
