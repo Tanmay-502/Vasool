@@ -21,6 +21,8 @@ async def lifespan(_: FastAPI):
         logger.warning("GROQ_API_KEY not set — Groq tier will fall through.")
     if not settings.RAZORPAY_WEBHOOK_SECRET:
         logger.warning("RAZORPAY_WEBHOOK_SECRET not set — signed recovery webhooks are disabled.")
+    if settings.ENV.lower() == "production" and not settings.VASOOL_API_KEY:
+        logger.warning("VASOOL_API_KEY not set in production — state-changing API authentication is disabled.")
     stop_event = asyncio.Event()
     scheduler_task = asyncio.create_task(run_scheduler(stop_event))
     try:
