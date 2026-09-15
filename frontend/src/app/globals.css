@@ -137,6 +137,56 @@ button:disabled { cursor: not-allowed; }
   animation: vasool-float 12s ease-in-out infinite reverse;
 }
 
+main section > div[class*="rounded-3xl"] {
+  box-shadow:
+    0 24px 60px rgba(16, 22, 43, 0.07),
+    0 4px 16px rgba(16, 22, 43, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+main section > div[class*="rounded-3xl"]:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 30px 74px rgba(16, 22, 43, 0.10),
+    0 8px 22px rgba(16, 22, 43, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+main section:first-of-type > div:first-child {
+  position: relative;
+  isolation: isolate;
+}
+
+main section:first-of-type > div:first-child::after {
+  content: "";
+  position: absolute;
+  width: 22rem;
+  height: 22rem;
+  right: -9rem;
+  top: -7rem;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255,255,255,.24) 0 3%, transparent 12%),
+    radial-gradient(circle at 48% 44%, rgba(119,144,255,.26), rgba(79,98,194,.08) 44%, transparent 70%);
+  box-shadow:
+    inset -24px -28px 54px rgba(0,0,0,.25),
+    inset 16px 12px 34px rgba(255,255,255,.08),
+    0 28px 70px rgba(56,76,173,.22);
+  transform: translateZ(0);
+  animation: vasool-float 8s ease-in-out infinite;
+}
+
+main section [class*="rounded-2xl"][class*="bg-[#f"] {
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+main section [class*="rounded-2xl"][class*="bg-[#f"]:hover {
+  transform: translateY(-1px);
+}
+
 @keyframes vasool-float {
   0%, 100% { transform: translateY(0) rotate(-2deg); }
   50% { transform: translateY(-8px) rotate(2deg); }
