@@ -1,8 +1,11 @@
+import asyncio
 from datetime import datetime
 
 import pytest
 
+from app.config import settings
 from app.executor import CaseAlreadyPaidError, execute_case
+from app.main import app, lifespan
 from app.models import AgentDecision, Customer, Merchant, Order, Payment, RecoveryCase
 from app.policy_runner import TerminalCaseError, run_policy_for_case
 from app.routers.metrics import get_metrics
@@ -86,3 +89,21 @@ def test_retry_later_schedules_before_outbound_call(db_session):
     assert result["action_status"] == "scheduled"
     assert result["case_status"] == "scheduled_retry"
     assert datetime.fromisoformat(result["not_before"]) > datetime.utcnow()
+
+
+def test_production_without_api_key_logs_auth_warning(caplog):
+    previous_env = settings.ENV
+    previous_key = settings.VASOOL_API_KEY
+    settings.ENV = "production"
+    settings.VASOOL_API_KEY = ""
+    try:
+        with caplog.at_level("WARNING", logger="app.main"):
+            async def exercise():
+                async with lifespan(app):
+                    pass
+
+            asyncio.run(exercise())
+        assert "VASOOL_API_KEY not set in production" in caplog.text
+    finally:
+        settings.ENV = previous_env
+        settings.VASOOL_API_KEY = previous_key
