@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,7 @@ from app.db import get_db
 from app.executor import AutomationPausedError, CaseAlreadyPaidError, CaseNotPendingExecutionError, CircuitOpenError, execute_case
 from app.models import AgentDecision, AuditLog, PolicyCheck, RecoveryCase
 from app.policy_runner import CaseNotAnalyzedError, TerminalCaseError, run_policy_for_case
-from app.rate_limit import RateLimitExceeded
+from app.rate_limit import RateLimitExceeded, caller_bucket_key
 from app.razorpay_client import RazorpayError
 from app.state import get_kill_switch
 from app.status import TERMINAL_STATUSES
@@ -79,12 +79,12 @@ def review_case(case_id: int, body: ReviewRequest, db: Session = Depends(get_db)
 
 
 @router.post("/cases/{case_id}/execute", dependencies=[Depends(require_api_key)])
-def execute_case_route(case_id: int, db: Session = Depends(get_db)):
+def execute_case_route(request: Request, case_id: int, db: Session = Depends(get_db)):
     case = db.get(RecoveryCase, case_id)
     if case is None:
         raise HTTPException(status_code=404, detail="Recovery case not found")
     try:
-        result = execute_case(db, case)
+        result = execute_case(db, case, rate_limit_key=caller_bucket_key(request))
     except (CaseNotPendingExecutionError, CaseAlreadyPaidError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AutomationPausedError as exc:

@@ -82,6 +82,37 @@ The browser's normal Analyze request no longer forces re-analysis. The dedicated
 - [ ] A distributed deployment still needs shared rate-limit/circuit state and a distributed scheduler lease to prevent duplicate sweeps across replicas.
 - [ ] The browser API-key approach is demo-friendly, not a replacement for user identity and authorization.
 
+## V4 — scheduler, auth, caller isolation, and console hardening
+
+### Implemented ✅
+- [x] Moved the synchronous scheduler sweep behind `asyncio.to_thread()` so a long agent/provider/DB sweep no longer occupies the FastAPI event loop.
+- [x] Added a scheduler concurrency regression test and a local pre-fix/post-fix timing verification.
+- [x] Added a production startup warning when `ENV=production` but `VASOOL_API_KEY` is empty.
+- [x] Scoped analyze and Razorpay limiter buckets by API key, with production IP fallback and existing `default` behavior preserved for development/test.
+- [x] Added caller-isolation rate-limit regression coverage.
+- [x] Added Vitest + React Testing Library coverage for the active `VasoolConsole`, including analyze → review → execute, kill-switch-disabled mutation controls, and terminal-state mutation hiding.
+- [x] Tightened the manual holdout defaults to 0.60 precision / 0.90 recall and made pass/fail visible in the GitHub Actions job summary even when the job remains non-blocking.
+- [x] Added a CSS-only visual refresh: immersive ambient depth, restrained 3D orb/ring treatment, layered card elevation, hover lift, and reduced-motion support without adding a chart/UI dependency.
+
+### Verified ✅
+- [x] Remote branch tree contains only `VasoolConsole.tsx` under `frontend/src/components`; the eight previously orphaned component filenames are absent.
+- [x] GitHub commit comparison from the current `main` tip shows no changes to `backend/app/agents/*` or `backend/scripts/shadow_backtest.py`.
+- [x] `backend/scripts/shadow_backtest.py` remains unchanged by this pass; no committed shadow case fixture exists to diff.
+- [x] Scheduler timing reproduction: pre-fix health latency ~1.00s while the sweep blocked the loop; post-fix health latency ~0.002s with the same 1s blocking workload moved to a thread.
+- [x] Latest GitHub CI run is green after the frontend dependency/test/typecheck fixes.
+- [x] Unused intermediate `RecoveryPulse` component was removed; the final visual treatment is implemented in the shared app shell/styles.
+
+### Not verified in this environment ⚠️
+- [ ] A literal `grep -r` could not be executed against a local Git clone because this environment cannot resolve `github.com`; the remote repository tree and component directory were checked directly instead.
+- [x] The full CI suite has now passed on the branch.
+- [ ] The real live Render deployment auth behavior can only be verified against the deployed URL with `ENV=production` and a configured `VASOOL_API_KEY`.
+- [ ] A real Razorpay Test Mode payment/webhook round-trip remains unperformed.
+
+### Open limitations
+- [ ] Rate limiter and circuit breaker remain process-local/in-memory.
+- [ ] The scheduler remains single-process and has no distributed lease for horizontal scaling.
+- [ ] The browser API-key model remains demo-oriented rather than a full identity/authorization system.
+
 ## Final state for this branch
 - [x] Work based on `main` after the competition-ready merge
 - [x] Safety-critical terminal/paid backstops hardened

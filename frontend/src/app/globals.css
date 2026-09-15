@@ -22,7 +22,185 @@ button:disabled { cursor: not-allowed; }
 .font-display { font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif; }
 .font-data { font-family: var(--font-data), ui-monospace, "SFMono-Regular", Menlo, monospace; font-variant-numeric: tabular-nums; }
 
+.vasool-grid {
+  background-image:
+    linear-gradient(rgba(24, 36, 66, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 36, 66, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, black 0%, transparent 82%);
+}
+
+.vasool-glass {
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 24px 60px rgba(18, 28, 55, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(18px);
+}
+
+.vasool-depth {
+  box-shadow:
+    0 28px 70px rgba(16, 22, 43, 0.10),
+    0 8px 24px rgba(16, 22, 43, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  transform: translateZ(0);
+}
+
+.vasool-3d-card {
+  transform: perspective(1200px) rotateX(0deg) translateZ(0);
+  transform-style: preserve-3d;
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+.vasool-3d-card:hover {
+  transform: perspective(1200px) rotateX(1.5deg) translateY(-3px) translateZ(5px);
+  box-shadow:
+    0 34px 80px rgba(16, 22, 43, 0.14),
+    0 10px 26px rgba(16, 22, 43, 0.06);
+}
+
+.vasool-orb {
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255,255,255,.95) 0 4%, rgba(255,255,255,.24) 5% 15%, transparent 17%),
+    radial-gradient(circle at 55% 42%, rgba(125,149,255,.72), rgba(74,91,197,.22) 42%, transparent 72%);
+  box-shadow:
+    inset -18px -22px 34px rgba(16,22,43,.26),
+    inset 12px 10px 24px rgba(255,255,255,.14),
+    0 24px 50px rgba(54,73,173,.26);
+  animation: vasool-float 6s ease-in-out infinite;
+}
+
+.vasool-ring {
+  border: 1px solid rgba(140, 162, 255, 0.24);
+  border-radius: 9999px;
+  box-shadow: inset 0 0 34px rgba(115, 137, 230, 0.08);
+  animation: vasool-spin 18s linear infinite;
+}
+
+.vasool-app-shell {
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+  overflow: clip;
+}
+
+.vasool-app-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 82% 9%, rgba(80, 104, 224, 0.11), transparent 24%),
+    radial-gradient(circle at 8% 86%, rgba(21, 154, 104, 0.08), transparent 20%);
+}
+
+.vasool-app-orb {
+  position: absolute;
+  z-index: 0;
+  width: 28rem;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.34;
+  filter: blur(1px);
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255,255,255,.88) 0 3%, transparent 11%),
+    radial-gradient(circle at 47% 42%, rgba(116,142,255,.30) 0 32%, rgba(65,84,168,.08) 52%, transparent 72%);
+  box-shadow:
+    inset -30px -36px 64px rgba(16,22,43,.08),
+    inset 18px 14px 40px rgba(255,255,255,.72),
+    0 40px 90px rgba(50,69,155,.12);
+}
+
+.vasool-app-orb::after {
+  content: "";
+  position: absolute;
+  inset: 14%;
+  border: 1px solid rgba(86, 110, 220, 0.15);
+  border-radius: 50%;
+  box-shadow: 0 0 0 30px rgba(86,110,220,.025), 0 0 0 60px rgba(86,110,220,.018);
+}
+
+.vasool-app-orb-one {
+  top: 3rem;
+  right: -12rem;
+  animation: vasool-float 9s ease-in-out infinite;
+}
+
+.vasool-app-orb-two {
+  bottom: 8rem;
+  left: -18rem;
+  width: 24rem;
+  opacity: 0.22;
+  animation: vasool-float 12s ease-in-out infinite reverse;
+}
+
+main section > div[class*="rounded-3xl"] {
+  box-shadow:
+    0 24px 60px rgba(16, 22, 43, 0.07),
+    0 4px 16px rgba(16, 22, 43, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+main section > div[class*="rounded-3xl"]:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 30px 74px rgba(16, 22, 43, 0.10),
+    0 8px 22px rgba(16, 22, 43, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+main section:first-of-type > div:first-child {
+  position: relative;
+  isolation: isolate;
+}
+
+main section:first-of-type > div:first-child::after {
+  content: "";
+  position: absolute;
+  width: 22rem;
+  height: 22rem;
+  right: -9rem;
+  top: -7rem;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255,255,255,.24) 0 3%, transparent 12%),
+    radial-gradient(circle at 48% 44%, rgba(119,144,255,.26), rgba(79,98,194,.08) 44%, transparent 70%);
+  box-shadow:
+    inset -24px -28px 54px rgba(0,0,0,.25),
+    inset 16px 12px 34px rgba(255,255,255,.08),
+    0 28px 70px rgba(56,76,173,.22);
+  transform: translateZ(0);
+  animation: vasool-float 8s ease-in-out infinite;
+}
+
+main section [class*="rounded-2xl"][class*="bg-[#f"] {
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+main section [class*="rounded-2xl"][class*="bg-[#f"]:hover {
+  transform: translateY(-1px);
+}
+
+@keyframes vasool-float {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-8px) rotate(2deg); }
+}
+
+@keyframes vasool-spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+  .vasool-app-orb-one,
+  .vasool-app-orb-two {
+    animation: none;
+  }
 }

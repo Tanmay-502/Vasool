@@ -16,7 +16,7 @@ from app.state import get_kill_switch
 logger = logging.getLogger(__name__)
 
 
-async def _sweep_once() -> None:
+def _sweep_once_sync() -> None:
     db = SessionLocal()
     try:
         if get_kill_switch(db):
@@ -56,6 +56,10 @@ async def _sweep_once() -> None:
                 logger.exception("Scheduled recovery failed for action %s", action.id)
     finally:
         db.close()
+
+
+async def _sweep_once() -> None:
+    await asyncio.to_thread(_sweep_once_sync)
 
 
 async def run_scheduler(stop_event: asyncio.Event) -> None:
