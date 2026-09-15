@@ -14,12 +14,32 @@ export type CasesResponse = { cases: CaseSummary[] };
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 const API_KEY = process.env.NEXT_PUBLIC_VASOOL_API_KEY ?? "";
 
-async function getJSON<T>(path: string): Promise<T | null> {
+export class ApiRequestError extends Error {
+  status: number | null;
+  path: string;
+
+  constructor(path: string, message: string, status: number | null = null) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.path = path;
+  }
+}
+
+async function getJSON<T>(path: string): Promise<T> {
   try {
     const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch { return null; }
+    const body = (await res.json().catch(() => null)) as { detail?: string } | T | null;
+    if (!res.ok) {
+      const detail = body && typeof body === "object" && body && "detail" in body ? body.detail : undefined;
+      throw new ApiRequestError(path, typeof detail === "string" ? detail : `Request failed (${res.status})`, res.status);
+    }
+    if (body === null) throw new ApiRequestError(path, "Backend returned an empty response.");
+    return body as T;
+  } catch (error) {
+    if (error instanceof ApiRequestError) throw error;
+    throw new ApiRequestError(path, "Could not reach the Vasool backend.");
+  }
 }
 
 async function postJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -48,7 +68,6 @@ export function setKillSwitch(engaged: boolean) { return postJSON<KillSwitchStat
 
 export async function getRecentCases(): Promise<AuditEntry[]> {
   const data = await getJSON<AuditLedgerApiResponse>("/cases/recent");
-  if (!data) return [];
   return data.entries.map((entry) => ({ id: entry.id, timestamp: entry.created_at, caseId: entry.case_id, eventType: entry.event_type, detail: entry.detail }));
 }
 
